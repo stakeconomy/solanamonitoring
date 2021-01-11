@@ -48,7 +48,7 @@ sudo nano /etc/telegraf/telegraf.conf
 
 # Example telegraf configuration
 The configuration file below /etc/telegraf/telegraf.conf
-Change your hostname! and check the location of the monitor script and username.
+Change your hostname, mountpoints to monitor, location of the monitor script and the username
 
 ```
 # Global Agent Configuration
@@ -86,8 +86,7 @@ Change your hostname! and check the location of the monitor script and username.
   timeout = "30s"
   data_format = "influx"
   data_type = "integer"
-...
-
+```
 
 
 
