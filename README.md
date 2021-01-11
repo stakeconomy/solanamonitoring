@@ -1,1 +1,2 @@
-# solanamonitoring
+Solana Monitoring Dashboard
+
