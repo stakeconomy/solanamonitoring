@@ -13,7 +13,7 @@ The solution consist of a standard telegraf installation and one bash script "mo
 
 TBD
 ------
-* Optimize code. 
+* Optimize the way how we get skip-rate
 
 # Installation & Setup
 
@@ -50,7 +50,7 @@ sudo nano /etc/telegraf/telegraf.conf
 The configuration file below /etc/telegraf/telegraf.conf
 Change your hostname! and check the location of the monitor script and username.
 
-``
+```
 # Global Agent Configuration
 [agent]
   hostname = "hostname"
