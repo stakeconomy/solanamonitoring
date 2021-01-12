@@ -51,6 +51,7 @@ git clone https://github.com/mbroeken/solanamonitoring/
 cd solanamonitoring
 chmod +x monitor.sh
 
+sudo apt install jq bc
 ```
 
 # Example telegraf configuration
