@@ -44,11 +44,15 @@ sudo -- bash -c 'echo "telegraf ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers'
 
 sudo cp /etc/telegraf/telegraf.conf /etc/telegraf/telegraf.conf.orig
 sudo rm -rf /etc/telegraf/telegraf.conf
-sudo nano /etc/telegraf/telegraf.conf
+
+git clone https://github.com/mbroeken/solanamonitoring/
+cd solanamonitoring
+chmod +x monitor.sh
+
 ```
 
 # Example telegraf configuration
-The configuration file below /etc/telegraf/telegraf.conf
+Add the configuration file /etc/telegraf/telegraf.conf based on the example below:
 
 Change your hostname, mountpoints to monitor, location of the monitor script and the username
 
