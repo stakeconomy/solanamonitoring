@@ -75,10 +75,13 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
 [[inputs.processes]]
 [[inputs.kernel]]
 [[inputs.diskio]]
+
 # Output Plugin InfluxDB
 [[outputs.influxdb]]
-  database = "telegraf"
+  database = "metricsdb"
   urls = [ "http://metrics.stakeconomy.com:8086" ]
+  username = "metrics"
+  password = "password"
 
 [[inputs.exec]]
   commands = ["sudo su -c /home/sol/monitor.sh -s /bin/sh sol"]
