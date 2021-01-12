@@ -18,7 +18,7 @@ TBD
 # Installation & Setup
 
 A fully functional Solana Validator is required to setup monitoring. In the example below we use Ubuntu 20.04.
-To get all metrics from your local 127.0.0.1 Validator RPC you need to add '''--enable-rpc-transaction-history in your validator startup scrip0t.
+To get all metrics from your local Validator RPC you need to add --enable-rpc-transaction-history in your validator startup script.
 In the examples below we setup the validator with user "sol" with it's home in /home/sol. It is required that the script is installed and run under that same user.
 You need to install the telegraf agent on your validator nodes. 
 
@@ -55,7 +55,7 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
 ```
 # Global Agent Configuration
 [agent]
-  hostname = "hostname"
+  hostname = "hostname" #set this to your hostname or your solana pubkey
   flush_interval = "15s"
   interval = "15s"
 
@@ -66,7 +66,7 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
     collect_cpu_time = false
     report_active = false
 [[inputs.disk]]
-    mount_points = ["/", "/data", "/mnt/ramdisk"]
+    mount_points = ["/", "/data", "/mnt/ramdisk"] #change this to your local server mountpoints
     ignore_fs = ["devtmpfs", "devfs"]
 [[inputs.io]]
 [[inputs.mem]]
@@ -81,12 +81,12 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
 # Output Plugin InfluxDB
 [[outputs.influxdb]]
   database = "metricsdb"
-  urls = [ "http://metrics.stakeconomy.com:8086" ]
+  urls = [ "http://metrics.stakeconomy.com:8086" ] #keep this to send all your metrics to the community dashboard
   username = "metrics"
   password = "password"
 
 [[inputs.exec]]
-  commands = ["sudo su -c /home/sol/monitor.sh -s /bin/sh sol"]
+  commands = ["sudo su -c /home/sol/monitor.sh -s /bin/sh sol"] #change home and username to the account your validator runs
   interval = "60s"
   timeout = "30s"
   data_format = "influx"
