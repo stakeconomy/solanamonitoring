@@ -33,7 +33,7 @@ EOF
 sudo curl -sL https://repos.influxdata.com/influxdb.key | sudo apt-key add -
 
 sudo apt-get update
-sudo apt-get -y install telegraf
+sudo apt-get -y install telegraf jq bc
 
 sudo systemctl enable --now telegraf
 sudo systemctl is-enabled telegraf
@@ -51,7 +51,6 @@ git clone https://github.com/mbroeken/solanamonitoring/
 cd solanamonitoring
 chmod +x monitor.sh
 
-sudo apt install jq bc
 ```
 
 # Example telegraf configuration
