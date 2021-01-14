@@ -1,21 +1,23 @@
 #!/bin/bash
 
-# set -x # enable debug
+# set -x # uncomment to enable debug
 
 #####    Packages required: jq, bc
-#####    Stakeconomy.com Solana Validator Monitoring Script v.0.13 to be used with Telegraf / Grafana / InfluxDB
-#####    For support post your questions in the #validator-support channel in solana discord
+#####    Solana Validator Monitoring Script v.0.14 to be used with Telegraf / Grafana / InfluxDB
+#####    Fetching data from Solana validators, outputs metrics in Influx Line Protocol on stdout
+#####    Created: 14 Jan 18:28 CET 2021
+#####    For support post your questions in the #validator-support channel in the Solana discord server
+
 #####    CONFIG    ##################################################################################################
 configDir="$HOME/.config/solana" # the directory for the config files, eg.: /home/user/.config/solana
 ##### optional:        #
 identityPubkey=""      # identity pubkey for the validator, insert if autodiscovery fails
 voteAccount=""         # vote account address for the validator, specify if there are more than one or if autodiscovery fails
-interval=30           # interval the scripts runs in telegraf
-slotinterval="$(expr 4 \* $interval)"     # interval of slots for calculating a meaningful average slot time, can be overridden with static value
-additionalInfo="on"    # set to 'on' for additional general metrics like balance on your vote and identity accounts avg Slot Time, number of validator nodes, epoch number and percentage epoch elapsed
+additionalInfo="on"    # set to 'on' for additional general metrics like balance on your vote and identity accounts, number of validator nodes, epoch number and percentage epoch elapsed
 binDir=""              # auto detection of the solana binary directory can fail or an alternative custom installation is preferred, in case insert like $HOME/solana/target/release
-rpcURL=""              # default is localhost with port number autodiscovered, alternatively it can be specified like http://custom.rpc.com:port you need to use --enable-rpc-transaction-history in your validator config to have local statistics from your local RPC endpoint
+rpcURL=""              # default is localhost with port number autodiscovered, alternatively it can be specified like http://custom.rpc.com:port
 format="SOL"           # amounts shown in 'SOL' instead of lamports
+now=$(date +%s%N)      # date in influx format
 #####  END CONFIG  ##################################################################################################
 
 if [ -n  "$binDir" ]; then
@@ -28,7 +30,7 @@ fi
 
 if [ -z $rpcURL ]; then
    rpcPort=$(ps aux | grep solana-validator | grep -Po "\-\-rpc\-port\s+\K[0-9]+")
-   if [ -z $rpcPort ]; then echo "auto-detection failed, please configure the rpcURL"; exit 1; fi
+   if [ -z $rpcPort ]; then echo "nodemonitor,pubkey=$identityPubkey status=4 $now"; exit 1; fi
    rpcURL="http://127.0.0.1:$rpcPort"
 fi
 
@@ -48,26 +50,21 @@ openfiles=$(cat /proc/sys/fs/file-nr | awk '{ print $1 }')
 validatorCheck=$($cli validators --url $rpcURL)
 
 if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator not found in set"; exit 1; fi
-    validatorBlockTime=$($cli block-time --url  $rpcURL --output json-compact $($cli slot --commitment max --url  $rpcURL ))
-#    if [ -n "$validatorBlockTime" ]; then validatorBlockTime=0; fi
-    validatorBlockTimeTest=$(echo $validatorBlockTime | grep -c "timestamp")
-       blockProduction=$($cli block-production --url $rpcURL --output json-compact 2>&- | grep -v Note:)
-       validatorBlockProduction=$(jq -r '.leaders[] | select(.identityPubkey == '\"$identityPubkey\"')' <<<$blockProduction)
-       validators=$($cli validators --url $rpcURL --output json-compact 2>&-)
-       currentValidatorInfo=$(jq -r '.currentValidators[] | select(.voteAccountPubkey == '\"$voteAccount\"')' <<<$validators)
-       delinquentValidatorInfo=$(jq -r '.delinquentValidators[] | select(.voteAccountPubkey == '\"$voteAccount\"')' <<<$validators)
+    blockProduction=$($cli block-production --url $rpcURL --output json-compact 2>&- | grep -v Note:)
+    validatorBlockProduction=$(jq -r '.leaders[] | select(.identityPubkey == '\"$identityPubkey\"')' <<<$blockProduction)
+    validators=$($cli validators --url $rpcURL --output json-compact 2>&-)
+    currentValidatorInfo=$(jq -r '.currentValidators[] | select(.voteAccountPubkey == '\"$voteAccount\"')' <<<$validators)
+    delinquentValidatorInfo=$(jq -r '.delinquentValidators[] | select(.voteAccountPubkey == '\"$voteAccount\"')' <<<$validators)
     if [[ ((-n "$currentValidatorInfo" || "$delinquentValidatorInfo" ))  ]] || [[ ("$validatorBlockTimeTest" -eq "1" ) ]]; then
-        status=1 #status 0=validating 1=up 2=error 3=delinquent
+        status=1 #status 0=validating 1=up 2=error 3=delinquent 4=stopped
         blockHeight=$(jq -r '.slot' <<<$validatorBlockTime)
         blockHeightTime=$(jq -r '.timestamp' <<<$validatorBlockTime)
-        avgBlockTime=$(echo "scale=2 ; $(expr $blockHeightTime - $($cli block-time --url $rpcURL --output json-compact $(expr $blockHeight - $slotinterval) | jq -r '.timestamp')) / $slotinterval" | bc)
         now=$(date +%s%N)
         if [ -n "$blockHeightTime" ]; then blockHeightFromNow=$(expr $(date +%s) - $blockHeightTime); fi
         if [ -n "$delinquentValidatorInfo" ]; then
               status=3
               activatedStake=$(jq -r '.activatedStake' <<<$delinquentValidatorInfo)
-              activatedStakeDisplay=$activatedStake
-        if [ "$format" == "SOL" ]; then activatedStakeDisplay=$(echo "scale=2 ; $activatedStake / 1000000000.0" | bc); fi
+        if [ "$format" == "SOL" ]; then activatedStake=$(echo "scale=2 ; $activatedStake / 1000000000.0" | bc); fi
               credits=$(jq -r '.credits' <<<$delinquentValidatorInfo)
               version=$(jq -r '.version' <<<$delinquentValidatorInfo | sed 's/ /-/g')
               commission=$(jq -r '.commission' <<<$delinquentValidatorInfo)
@@ -75,17 +72,15 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
         elif [ -n "$currentValidatorInfo" ]; then
               status=0
               activatedStake=$(jq -r '.activatedStake' <<<$currentValidatorInfo)
-              activatedStakeDisplay=$activatedStake
               credits=$(jq -r '.credits' <<<$currentValidatorInfo)
               version=$(jq -r '.version' <<<$currentValidatorInfo | sed 's/ /-/g')
               commission=$(jq -r '.commission' <<<$currentValidatorInfo)
               logentry="rootSlot=$(jq -r '.rootSlot' <<<$currentValidatorInfo),lastVote=$(jq -r '.lastVote' <<<$currentValidatorInfo)"
               leaderSlots=$(jq -r '.leaderSlots' <<<$validatorBlockProduction)
               skippedSlots=$(jq -r '.skippedSlots' <<<$validatorBlockProduction)
-              #totalBlocksProduced=$(jq -r '.total_blocks_produced' <<<$blockProduction)
               totalBlocksProduced=$(jq -r '.total_slots' <<<$blockProduction)
               totalSlotsSkipped=$(jq -r '.total_slots_skipped' <<<$blockProduction)
-              if [ "$format" == "SOL" ]; then activatedStakeDisplay=$(echo "scale=2 ; $activatedStake / 1000000000.0" | bc); fi
+              if [ "$format" == "SOL" ]; then activatedStake=$(echo "scale=2 ; $activatedStake / 1000000000.0" | bc); fi
               if [ -n "$leaderSlots" ]; then pctSkipped=$(echo "scale=2 ; 100 * $skippedSlots / $leaderSlots" | bc); fi
               if [ -z "$leaderSlots" ]; then leaderSlots=0 skippedSlots=0 pctSkipped=0; fi
               if [ -n "$totalBlocksProduced" ]; then
@@ -106,23 +101,18 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
               pctVersionActive=$(echo "scale=2 ; 100 * $versionActiveStake / $totalCurrentStake" | bc)
               pctNewerVersions=$(echo "scale=2 ; 100 * $stakeNewerVersions / $totalCurrentStake" | bc)
               logentry="$logentry,leaderSlots=$leaderSlots,skippedSlots=$skippedSlots,pctSkipped=$pctSkipped,pctTotSkipped=$pctTotSkipped,pctSkippedDelta=$pctSkippedDelta,pctTotDelinquent=$pctTotDelinquent"
-              logentry="$logentry,version=\"$version\",pctNewerVersions=$pctNewerVersions,commission=$commission,activatedStake=$activatedStakeDisplay,credits=$credits,solanaPrice=$solanaPrice"
-           else status=error; fi
-        avgSlotTime="0"
+              logentry="$logentry,version=\"$version\",pctNewerVersions=$pctNewerVersions,commission=$commission,activatedStake=$activatedStake,credits=$credits,solanaPrice=$solanaPrice"
+           else status=2; fi
         if [ "$additionalInfo" == "on" ]; then
-           if [ -n "$blockHeightTime" ]; then
-              if [ -n "$blockHeight" ];then slotIntervalTime=$($cli block-time --url $rpcURL --output json-compact $(expr $blockHeight - $slotinterval) | jq -r '.timestamp'); fi
-              if [ -n "$slotIntervalTime" ];then avgSlotTime=$(echo "scale=2 ; ($blockHeightTime - $slotIntervalTime) / $slotinterval" | bc); fi
-           fi
            nodes=$($cli gossip --url $rpcURL | grep -Po "Nodes:\s+\K[0-9]+")
            epochInfo=$($cli epoch-info --url $rpcURL --output json-compact)
            epoch=$(jq -r '.epoch' <<<$epochInfo)
            pctEpochElapsed=$(echo "scale=2 ; 100 * $(jq -r '.slotIndex' <<<$epochInfo) / $(jq -r '.slotsInEpoch' <<<$epochInfo)" | bc)
-           logentry="$logentry,openFiles=$openfiles,validatorBalance=$validatorBalance,validatorVoteBalance=$validatorVoteBalance,avgSlotTime=$avgSlotTime,nodes=$nodes,epoch=$epoch,pctEpochElapsed=$pctEpochElapsed"
+           logentry="$logentry,openFiles=$openfiles,validatorBalance=$validatorBalance,validatorVoteBalance=$validatorVoteBalance,nodes=$nodes,epoch=$epoch,pctEpochElapsed=$pctEpochElapsed"
         fi
         logentry="nodemonitor,pubkey=$identityPubkey status=$status,$logentry $now"
     else
-        now=$(date +%s%N)
+#         now=$(date +%s%N)
         status=2
         logentry="nodemonitor,pubkey=$identityPubkey status=$status $now"
     fi
