@@ -1,12 +1,11 @@
 #!/bin/bash
-
 # set -x # uncomment to enable debug
 
 #####    Packages required: jq, bc
 #####    Solana Validator Monitoring Script v.0.14 to be used with Telegraf / Grafana / InfluxDB
 #####    Fetching data from Solana validators, outputs metrics in Influx Line Protocol on stdout
-#####    Created: 14 Jan 18:28 CET 2021
-#####    For support post your questions in the #validator-support channel in the Solana discord server
+#####    Created: 14 Jan 18:28 CET 2021 by Stakeconomy.com. Forked from original Zabbix nodemonitor.sh script created by Stakezone
+#####    For support post your questions in the #monitoring channel in the Solana discord server
 
 #####    CONFIG    ##################################################################################################
 configDir="$HOME/.config/solana" # the directory for the config files, eg.: /home/user/.config/solana
