@@ -107,6 +107,6 @@ Your newly installed TIG stack also has it's own telegraf agent that you need to
 # Output Plugin InfluxDB
 [[outputs.influxdb]]
   database = "telegraf"
-  urls = [ "http://mlocalhost:8086" ] # keep this to send all your metrics to the community dashboard
+  urls = [ "http://127.0.0.1:8086" ]
   username = "telegraf"
   password = "password"
