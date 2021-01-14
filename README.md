@@ -92,7 +92,7 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
 
 [[inputs.exec]]
   commands = ["sudo su -c /home/sol/solanamonitoring/monitor.sh -s /bin/bash sol"] # change home and username to the useraccount your validator runs at
-  interval = "120s"
+  interval = "30s"
   timeout = "30s"
   data_format = "influx"
   data_type = "integer"
