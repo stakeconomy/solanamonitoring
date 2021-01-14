@@ -75,9 +75,39 @@ influx
 > grant WRITE on metricsdb to metrics
 > grant all on metricsdb to telegraf
 
-create telegraf users
-
-
 # reset admin password grafana
 grafana-cli admin reset-admin-password password
 ```
+
+Your newly installed TIG stack also has it's own telegraf agent that you need to configure to point to your local InfluxDB;
+```
+# Global Agent Configuration
+[agent]
+  hostname = "hostname" # set this to your hostname
+  flush_interval = "15s"
+  interval = "15s"
+
+# Input Plugins
+[[inputs.cpu]]
+    percpu = true
+    totalcpu = true
+    collect_cpu_time = false
+    report_active = false
+[[inputs.disk]]
+    ignore_fs = ["tmpfs", "devtmpfs", "devfs"]
+[[inputs.io]]
+[[inputs.mem]]
+[[inputs.net]]
+[[inputs.system]]
+[[inputs.swap]]
+[[inputs.netstat]]
+[[inputs.processes]]
+[[inputs.kernel]]
+[[inputs.diskio]]
+
+# Output Plugin InfluxDB
+[[outputs.influxdb]]
+  database = "telegraf"
+  urls = [ "http://mlocalhost:8086" ] # keep this to send all your metrics to the community dashboard
+  username = "telegraf"
+  password = "password"
