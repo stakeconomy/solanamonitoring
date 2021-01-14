@@ -4,7 +4,7 @@ How to Install TIG Stack (Telegraf, InfluxDB, and Grafana) is described below
 Setup a new Ubuntu 20.04 VM (2vCPU / 4GB vRAM) with a static ipv4 address.
 
 ```
-go root
+# go root
 sudo su -
 
 
@@ -15,7 +15,7 @@ apt-get install gnupg2 software-properties-common -y
 # Next, import the GPG key with the following command:
 wget -qO- https://repos.influxdata.com/influxdb.key | apt-key add -
 
-#Next, add the InfluxData repository with the following command:
+#N ext, add the InfluxData repository with the following command:
 source /etc/lsb-release
 echo "deb https://repos.influxdata.com/${DISTRIB_ID,,} ${DISTRIB_CODENAME} stable" | tee /etc/apt/sources.list.d/influxdata.list
 
@@ -33,17 +33,16 @@ systemctl status telegraf
 # now install InfluxDB
 apt-get install influxdb -y
 
-#start InfluxDB and enable at start
+# start InfluxDB and enable at start
 systemctl enable --now influxdb
 systemctl start influxdb
 
-#install Grafana
-First, import the Grafana key with the following command:
+# install Grafana
 
+#First, import the Grafana key with the following command:
 wget -q -O - https://packages.grafana.com/gpg.key | apt-key add -
 
-add the Grafana repository with the following command:
-
+# add the Grafana repository with the following command:
 add-apt-repository "deb https://packages.grafana.com/oss/deb stable main"
 
 # Update and install Grafana
