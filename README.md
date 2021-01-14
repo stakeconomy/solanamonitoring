@@ -61,7 +61,7 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
 ```
 # Global Agent Configuration
 [agent]
-  hostname = "hostname" #set this to your hostname or your solana pubkey
+  hostname = "hostname" # set this to a name you want to identify your node in the grafana dashboard
   flush_interval = "15s"
   interval = "15s"
 
@@ -72,7 +72,6 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
     collect_cpu_time = false
     report_active = false
 [[inputs.disk]]
-    mount_points = ["/", "/data", "/mnt/ramdisk"] #change this to your local server mountpoints
     ignore_fs = ["devtmpfs", "devfs"]
 [[inputs.io]]
 [[inputs.mem]]
@@ -87,13 +86,13 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
 # Output Plugin InfluxDB
 [[outputs.influxdb]]
   database = "metricsdb"
-  urls = [ "http://metrics.stakeconomy.com:8086" ] #keep this to send all your metrics to the community dashboard
-  username = "metrics"
+  urls = [ "http://metrics.stakeconomy.com:8086" ] # keep this to send all your metrics to the community dashboard otherwise use http://yourownmonitoringnode:8086
+  username = "metrics" # keep both values if you use the community dashboard
   password = "password"
 
 [[inputs.exec]]
-  commands = ["sudo su -c /home/sol/solanamonitoring/monitor.sh -s /bin/bash sol"] #change home and username to the account your validator runs
-  interval = "120s"
+  commands = ["sudo su -c /home/sol/solanamonitoring/monitor.sh -s /bin/bash sol"] # change home and username to the useraccount your validator runs at
+  interval = "30s"
   timeout = "30s"
   data_format = "influx"
   data_type = "integer"
