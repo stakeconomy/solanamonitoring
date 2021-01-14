@@ -3,12 +3,14 @@
 # set -x # enable debug
 
 #####    Packages required: jq, bc
+#####    Stakeconomy.com Solana Validator Monitoring Script v.0.13 to be used with Telegraf / Grafana / InfluxDB
+#####    For support post your questions in the #validator-support channel in solana discord
 #####    CONFIG    ##################################################################################################
 configDir="$HOME/.config/solana" # the directory for the config files, eg.: /home/user/.config/solana
 ##### optional:        #
 identityPubkey=""      # identity pubkey for the validator, insert if autodiscovery fails
 voteAccount=""         # vote account address for the validator, specify if there are more than one or if autodiscovery fails
-interval=120           # interval the scripts runs in telegraf
+interval=30           # interval the scripts runs in telegraf
 slotinterval="$(expr 4 \* $interval)"     # interval of slots for calculating a meaningful average slot time, can be overridden with static value
 additionalInfo="on"    # set to 'on' for additional general metrics like balance on your vote and identity accounts avg Slot Time, number of validator nodes, epoch number and percentage epoch elapsed
 binDir=""              # auto detection of the solana binary directory can fail or an alternative custom installation is preferred, in case insert like $HOME/solana/target/release
@@ -46,7 +48,8 @@ openfiles=$(cat /proc/sys/fs/file-nr | awk '{ print $1 }')
 validatorCheck=$($cli validators --url $rpcURL)
 
 if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator not found in set"; exit 1; fi
-    validatorBlockTime=$($cli block-time --url  $rpcURL --output json-compact $($cli slot --commitment max --url  $rpcURL))
+    validatorBlockTime=$($cli block-time --url  $rpcURL --output json-compact $($cli slot --commitment max --url  $rpcURL ))
+#    if [ -n "$validatorBlockTime" ]; then validatorBlockTime=0; fi
     validatorBlockTimeTest=$(echo $validatorBlockTime | grep -c "timestamp")
        blockProduction=$($cli block-production --url $rpcURL --output json-compact 2>&- | grep -v Note:)
        validatorBlockProduction=$(jq -r '.leaders[] | select(.identityPubkey == '\"$identityPubkey\"')' <<<$blockProduction)
@@ -89,6 +92,7 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
                  pctTotSkipped=$(echo "scale=2 ; 100 * $totalSlotsSkipped / $totalBlocksProduced" | bc)
                  pctSkippedDelta=$(echo "scale=2 ; 100 * ($pctSkipped - $pctTotSkipped) / $pctTotSkipped" | bc)
               fi
+              if [ -z "$pctTotSkipped" ]; then pctTotSkipped=0 pctSkippedDelta=0; fi
               totalActiveStake=$(jq -r '.totalActiveStake' <<<$validators)
               totalDelinquentStake=$(jq -r '.totalDelinquentStake' <<<$validators)
               pctTotDelinquent=$(echo "scale=2 ; 100 * $totalDelinquentStake / $totalActiveStake" | bc)
