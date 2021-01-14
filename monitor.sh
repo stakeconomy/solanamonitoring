@@ -59,7 +59,6 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
         status=1 #status 0=validating 1=up 2=error 3=delinquent 4=stopped
         blockHeight=$(jq -r '.slot' <<<$validatorBlockTime)
         blockHeightTime=$(jq -r '.timestamp' <<<$validatorBlockTime)
-        now=$(date +%s%N)
         if [ -n "$blockHeightTime" ]; then blockHeightFromNow=$(expr $(date +%s) - $blockHeightTime); fi
         if [ -n "$delinquentValidatorInfo" ]; then
               status=3
@@ -112,7 +111,6 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
         fi
         logentry="nodemonitor,pubkey=$identityPubkey status=$status,$logentry $now"
     else
-#         now=$(date +%s%N)
         status=2
         logentry="nodemonitor,pubkey=$identityPubkey status=$status $now"
     fi
