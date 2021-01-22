@@ -47,7 +47,7 @@ sudo -- bash -c 'echo "telegraf ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers'
 sudo cp /etc/telegraf/telegraf.conf /etc/telegraf/telegraf.conf.orig
 sudo rm -rf /etc/telegraf/telegraf.conf
 
-git clone https://github.com/mbroeken/solanamonitoring/
+git clone https://github.com/stakeconomy/solanamonitoring/
 cd solanamonitoring
 chmod +x monitor.sh
 
