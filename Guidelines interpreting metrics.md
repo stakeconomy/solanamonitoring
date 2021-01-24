@@ -14,3 +14,5 @@ Telegraf benefits
 - Minimal memory footprint
 - Over 200 plugins available
 - Able to send metrics to central InfluxDB without the need of client configuration
+
+[![Telegraf Architecture] https://stakeconomy.com/wp-content/uploads/2021/01/telegraf-influxdb.png)]
