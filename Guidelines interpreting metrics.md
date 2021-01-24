@@ -1,5 +1,5 @@
 # Monitoring Solana validator performance metrics
-*This post is Part 2 of a 4-part series about monitoring your Solana Validator. [Part 1.] was written down to help you setup monitoring
+*This post is Part 2 of a 3-part series about monitoring your Solana Validator. [Part 1.] was written  to help you setup monitoring on your node.
 
 ## Where metrics come from
 
@@ -15,6 +15,7 @@ Telegraf is an open-source tool. It contains over 200 plugins for gathering and 
 - Over 200 plugins available
 - Able to send metrics to central InfluxDB without the need of client configuration
 
-##### Architecture
+#### Architecture
+
 [![CPU per host](https://stakeconomy.com/wp-content/uploads/2021/01/telegraf-influxdb.png)](https://stakeconomy.com/wp-content/uploads/2021/01/telegraf-influxdb.png)
 
