@@ -8,3 +8,9 @@
 Telegraf can collect metrics from a wide array of inputs and write them to a wide array of outputs. It is plugin-driven for both collection and output of data so it is easily extendable. It is written in Go, which means that it is compiled and standalone binary that can be executed on any system with no need for external dependencies, or package management tools required.
 
 Telegraf is an open-source tool. It contains over 200 plugins for gathering and writing different types of data written by people who work with that data.
+
+Telegraf benefits
+- easy to setup
+- Minimal memory footprint
+- Over 200 plugins available
+- Able to send metrics to central InfluxDB without the need of client configuration
