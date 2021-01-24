@@ -15,5 +15,9 @@ Telegraf benefits
 - Over 200 plugins available
 - Able to send metrics to central InfluxDB without the need of client configuration
 
-(https://stakeconomy.com/wp-content/uploads/2021/01/telegraf-influxdb.png)
+
+[![CPU per host](https://stakeconomy.com/wp-content/uploads/2021/01/telegraf-influxdb.png)](https://stakeconomy.com/wp-content/uploads/2021/01/telegraf-influxdb.png)
+
 [![CPU per host](https://don08600y3gfm.cloudfront.net/ps3b/blog/images/2016-11-kubernetes/2/hosts-full-cpu.png)](https://don08600y3gfm.cloudfront.net/ps3b/blog/images/2016-11-kubernetes/2/hosts-full-cpu.png)
+
+[![Kubernetes monitoring use case](https://don08600y3gfm.cloudfront.net/ps3b/blog/images/2016-11-kubernetes/2/k8s-use-case.png)](https://don08600y3gfm.cloudfront.net/ps3b/blog/images/2016-11-kubernetes/2/k8s-use-case.png)
