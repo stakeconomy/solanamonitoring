@@ -15,7 +15,8 @@ The solution consist of a standard telegraf installation and one bash script "mo
 
 TBD
 ------
-* Optimize the way how we get skip-rate. Rebuild solana monitoring script as telegraf input plugin written in Go.
+* Optimize the way how we get skip-rate. 
+* Rebuild solana monitoring script as telegraf input plugin written in Go.
 
 # Installation & Setup
 
