@@ -1,6 +1,7 @@
 # Solana Validator Monitoring Tool
 
 Complete Solana Validator Monitoring solution to be used with Telegraf / Grafana / InfluxDB. 
+*This post is Part 1 of a 3-part series about monitoring your Solana Validator. 
 
 The solution consist of a standard telegraf installation and one bash script "monitor.sh" that will get all server performance and validator performance metrics every 30 seconds and send all the metrics to a local or remote influx database server.
 
@@ -101,4 +102,4 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
 ```
 
 
-
+Please continue to [Part 2.] that was written to help you setup monitoring on your node.
