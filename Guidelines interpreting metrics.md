@@ -1,5 +1,10 @@
 # Monitoring Solana validator performance metrics
-*This post is Part 2 of a 3-part series about monitoring your Solana Validator. [Part 1.] was written  to help you setup monitoring on your node.
+
+*This post is Part 3 of a 3-part series about setting up proper monitoring on your Solana Validator.*
+
+* [Part 1.](https://github.com/stakeconomy/solanamonitoring/blob/main/README.md) Solana Validator Monitoring Tool
+* [Part 2.](https://github.com/stakeconomy/solanamonitoring/blob/main/How%20to%20Install%20TIG%20Stack.md) How to Install Telegraf, InfluxDB, and Grafana
+* [Part 3.](https://github.com/stakeconomy/solanamonitoring/blob/main/Guidelines%20interpreting%20metrics.md) Interpreting monitoring metrics
 
 ## Where metrics come from
 
