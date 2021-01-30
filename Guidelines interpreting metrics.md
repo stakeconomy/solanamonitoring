@@ -15,12 +15,13 @@ Telegraf can collect metrics from a wide array of inputs and write them to a wid
 Telegraf is an open-source tool. It contains over 200 plugins for gathering and writing different types of data written by people who work with that data.
 
 #### Telegraf benefits
-- easy to setup
+- Easy to setup
 - Minimal memory footprint
 - Over 200 plugins available
 - Able to send metrics to central InfluxDB without the need of client configuration
 
 #### Architecture
 
-[![CPU per host](http://dev.stakeconomy.com/wp-content/uploads/2021/01/telegraf-influxdb.png)](http://dev.stakeconomy.com/wp-content/uploads/2021/01/telegraf-influxdb.png)
+[![Architecture](https://imgur.com/a/gbFKZIT)](https://imgur.com/a/gbFKZIT)
 
+(https://imgur.com/a/RpfDOqh)
