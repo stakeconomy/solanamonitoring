@@ -9,6 +9,8 @@
 
 Setup a new Ubuntu 20.04 VM (2vCPU / 4GB vRAM) with a static ipv4 address.
 
+![TIG Stack](https://www.google.com/url?sa=i&url=https%3A%2F%2Fhackernoon.com%2Fmonitor-your-infrastructure-with-tig-stack-b63971a15ccf&psig=AOvVaw0drWSQ4qlpMtU-7k0XPH5D&ust=1612108938680000&source=images&cd=vfe&ved=0CAIQjRxqFwoTCPCZjfiDxO4CFQAAAAAdAAAAABAD)
+
 ```
 # go root
 sudo su -
