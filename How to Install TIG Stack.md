@@ -117,3 +117,5 @@ Your newly installed TIG stack also has it's own telegraf agent that you need to
   password = "password"
 
 ```
+
+In [Part 3.](https://github.com/stakeconomy/solanamonitoring/blob/main/Guidelines%20interpreting%20metrics.md) you can read how to interpret all metrics
