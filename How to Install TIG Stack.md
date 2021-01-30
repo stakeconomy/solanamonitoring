@@ -7,7 +7,6 @@ Setup a new Ubuntu 20.04 VM (2vCPU / 4GB vRAM) with a static ipv4 address.
 # go root
 sudo su -
 
-
 # install telegraf
 # First, install the required dependencies using the following command:
 apt-get install gnupg2 software-properties-common -y
