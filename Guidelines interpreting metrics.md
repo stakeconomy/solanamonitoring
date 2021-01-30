@@ -17,5 +17,5 @@ Telegraf is an open-source tool. It contains over 200 plugins for gathering and 
 
 #### Architecture
 
-[![CPU per host](https://dev.stakeconomy.com/wp-content/uploads/2021/01/telegraf-influxdb.png)](https://dev.stakeconomy.com/wp-content/uploads/2021/01/telegraf-influxdb.png)
+[![CPU per host](http://dev.stakeconomy.com/wp-content/uploads/2021/01/telegraf-influxdb.png)](http://dev.stakeconomy.com/wp-content/uploads/2021/01/telegraf-influxdb.png)
 
