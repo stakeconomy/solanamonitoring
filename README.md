@@ -18,7 +18,7 @@ Telegraf is an open-source tool. It contains over 200 plugins for gathering and 
 - Easy to setup
 - Minimal memory footprint
 - Over 200 plugins available
-- Able to send metrics to central InfluxDB without the need of client configuration
+- Able to send metrics to central InfluxDB over http(s) without the need of client configuration
 
 ### Architecture
 
