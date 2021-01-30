@@ -1,5 +1,4 @@
 # Solana Validator Monitoring Tool
-## Complete Solana Validator Monitoring solution to be used with Telegraf / Grafana / InfluxDB. 
 
 *This post is Part 1 of a 3-part series about setting up proper monitoring on your Solana Validator.*
 
@@ -7,6 +6,25 @@
 * [Part 2.](https://github.com/stakeconomy/solanamonitoring/blob/main/How%20to%20Install%20TIG%20Stack.md) How to Install Telegraf, InfluxDB, and Grafana
 * [Part 3.](https://github.com/stakeconomy/solanamonitoring/blob/main/Guidelines%20interpreting%20metrics.md) Interpreting monitoring metrics
 
+## Introduction
+
+### Telegraf | A Metrics Collector For InfluxDB
+
+Telegraf can collect metrics from a wide array of inputs and write them to a wide array of outputs. It is plugin-driven for both collection and output of data so it is easily extendable. It is written in Go, which means that it is compiled and standalone binary that can be executed on any system with no need for external dependencies, or package management tools required.
+
+Telegraf is an open-source tool. It contains over 200 plugins for gathering and writing different types of data written by people who work with that data.
+
+### Telegraf benefits
+- Easy to setup
+- Minimal memory footprint
+- Over 200 plugins available
+- Able to send metrics to central InfluxDB without the need of client configuration
+
+### Architecture
+
+![Architecture](https://i.imgur.com/xmbND94.png)
+
+### Solana Monitoring
 The solution consist of a standard telegraf installation and one bash script "monitor.sh" that will get all server performance and validator performance metrics every 30 seconds and send all the metrics to a local or remote influx database server.
 
 ![Sample Dashboard](https://i.imgur.com/2CB2F1o.png)
