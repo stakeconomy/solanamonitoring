@@ -1,6 +1,9 @@
 # Installation & Setup
 
-How to Install TIG Stack (Telegraf, InfluxDB, and Grafana) is described below
+*This post is Part 2 of a 3-part series about setting up proper monitoring on your Solana Validator*
+
+How to Install TIG Stack (Telegraf, InfluxDB, and Grafana) is described below.
+
 Setup a new Ubuntu 20.04 VM (2vCPU / 4GB vRAM) with a static ipv4 address.
 
 ```
@@ -109,3 +112,4 @@ Your newly installed TIG stack also has it's own telegraf agent that you need to
   urls = [ "http://127.0.0.1:8086" ]
   username = "telegraf"
   password = "password"
+'''
