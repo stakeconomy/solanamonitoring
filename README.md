@@ -21,7 +21,8 @@ TBD
 # Installation & Setup
 
 A fully functional Solana Validator is required to setup monitoring. In the example below we use Ubuntu 20.04.
-To get all metrics from your local Validator RPC you need to add --enable-rpc-transaction-history in your validator startup script.
+To get all metrics from your local Validator RPC.
+
 In the examples below we setup the validator with user "sol" with it's home in /home/sol. It is required that the script is installed and run under that same user.
 You need to install the telegraf agent on your validator nodes. 
 
