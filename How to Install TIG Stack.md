@@ -130,8 +130,9 @@ Your newly installed TIG stack also has it's own telegraf agent that you need to
   password = "password"
 
 ```
-Point your browser to http://SERVER_IP:3000, you should see Grafana Dashboard
-The default credential is admin with password admin. You will want to change this as soon as you can.
+Point your browser to http://server-ipdres:3000, you should see the newly installed Grafana Dashboard.
+
+The default credential is admin with password admin. You might want to change this as soon as you can.
 
 
 In [Part 3.](https://github.com/stakeconomy/solanamonitoring/blob/main/Guidelines%20interpreting%20metrics.md) you can read how to interpret all metrics
