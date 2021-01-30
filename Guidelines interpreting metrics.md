@@ -22,6 +22,6 @@ Telegraf is an open-source tool. It contains over 200 plugins for gathering and 
 
 #### Architecture
 
-[![Architecture](https://imgur.com/a/gbFKZIT)](https://imgur.com/a/gbFKZIT)
+[![Architecture](https://i.imgur.com/C3aIN1I.png)]
 
 (https://imgur.com/a/RpfDOqh)
