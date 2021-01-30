@@ -102,4 +102,4 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
 ```
 
 
-Please continue to [Part 2.] that was written to help you setup monitoring on your node.
+Please continue to [Part 2.](https://github.com/stakeconomy/solanamonitoring/blob/main/How%20to%20Install%20TIG%20Stack.md) that was written to help you setup your own TIG (Telegraf/InfluxDB/Grafana) stack.
