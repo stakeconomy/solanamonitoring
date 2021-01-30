@@ -1,9 +1,10 @@
-# Installation & Setup
+# How to Install TIG Stack (Telegraf, InfluxDB, and Grafana)
+## Installation & Setup
 
-*This post is Part 2 of a 3-part series about setting up proper monitoring on your Solana Validator. 
-[Part 1.](https://github.com/stakeconomy/solanamonitoring/blob/main/README.md) Solana Validator Monitoring Tool or [Part 3.](https://github.com/stakeconomy/solanamonitoring/blob/main/Guidelines%20interpreting%20metrics.md) about interpreting metrics.
-
-How to Install TIG Stack (Telegraf, InfluxDB, and Grafana) is described below.
+*This post is Part 2 of a 3-part series about setting up proper monitoring on your Solana Validator.*
+*[Part 1.](https://github.com/stakeconomy/solanamonitoring/blob/main/README.md) Solana Validator Monitoring Tool*
+*[Part 2.](https://github.com/stakeconomy/solanamonitoring/blob/main/How%20to%20Install%20TIG%20Stack.md) How to Install Telegraf, InfluxDB, and Grafana*
+*[Part 3.](https://github.com/stakeconomy/solanamonitoring/blob/main/Guidelines%20interpreting%20metrics.md) Interpreting monitoring metrics*
 
 Setup a new Ubuntu 20.04 VM (2vCPU / 4GB vRAM) with a static ipv4 address.
 
