@@ -12,7 +12,6 @@ The solution consist of a standard telegraf installation and one bash script "mo
 ![Sample Dashboard](https://i.imgur.com/2CB2F1o.png)
 
 # Features
-------
 * Simple setup with minimal performance impact to monitor validator node.
 * Sample Dashboard to import into Grafana.
 * Use of community dashboard on https://metrics.stakeconomy.com possible so you don't need to setup your own monitoring system.
