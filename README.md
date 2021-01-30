@@ -1,7 +1,11 @@
 # Solana Validator Monitoring Tool
-Complete Solana Validator Monitoring solution to be used with Telegraf / Grafana / InfluxDB. 
+## Complete Solana Validator Monitoring solution to be used with Telegraf / Grafana / InfluxDB. 
 
-*This post is Part 1 of a 3-part series about monitoring your Solana Validator*
+*This post is Part 2 of a 3-part series about setting up proper monitoring on your Solana Validator.*
+
+* [Part 1.](https://github.com/stakeconomy/solanamonitoring/blob/main/README.md) Solana Validator Monitoring Tool
+* [Part 2.](https://github.com/stakeconomy/solanamonitoring/blob/main/How%20to%20Install%20TIG%20Stack.md) How to Install Telegraf, InfluxDB, and Grafana
+* [Part 3.](https://github.com/stakeconomy/solanamonitoring/blob/main/Guidelines%20interpreting%20metrics.md) Interpreting monitoring metrics
 
 The solution consist of a standard telegraf installation and one bash script "monitor.sh" that will get all server performance and validator performance metrics every 30 seconds and send all the metrics to a local or remote influx database server.
 
