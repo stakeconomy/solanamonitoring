@@ -1,5 +1,5 @@
 # How to Install TIG Stack (Telegraf, InfluxDB, and Grafana)
-## Installation & Setup
+This post describes howto setup your own local monitoring setup
 
 *This post is Part 2 of a 3-part series about setting up proper monitoring on your Solana Validator.*
 
@@ -7,7 +7,18 @@
 * [Part 2.](https://github.com/stakeconomy/solanamonitoring/blob/main/How%20to%20Install%20TIG%20Stack.md) How to Install Telegraf, InfluxDB, and Grafana
 * [Part 3.](https://github.com/stakeconomy/solanamonitoring/blob/main/Guidelines%20interpreting%20metrics.md) Interpreting monitoring metrics
 
+## Installation & Setup
+
+We are going to setup a TIG monitoring stack for your solana infrastructure. So you can collects perofrmance metrics from your servers and applications running.
+
+*Telegraf* - Data collector written in Go for collecting, processing, and aggregating and writting metrics. Its a plugin driven tool, we will use a few plugins while implementing our use case.
+*InfluxDB* - Scalable time series database for metrics, events and real-time analytics.
+*Grafana* - Data visualization and exploration tool. It lets you create graphs and dashboards based on data from various data sources (InfluxDB, Prometheus, etc.)
+
+
+# Setup
 Setup a new Ubuntu 20.04 VM (2vCPU / 4GB vRAM) with a static ipv4 address.
+
 
 ![TIG Stack](https://hackernoon.com/hn-images/0*Aw1A7GHp8-KMHpWY.)
 
@@ -119,5 +130,8 @@ Your newly installed TIG stack also has it's own telegraf agent that you need to
   password = "password"
 
 ```
+Point your browser to http://SERVER_IP:3000, you should see Grafana Dashboard
+The default credential is admin with password admin. You will want to change this as soon as you can.
+
 
 In [Part 3.](https://github.com/stakeconomy/solanamonitoring/blob/main/Guidelines%20interpreting%20metrics.md) you can read how to interpret all metrics
