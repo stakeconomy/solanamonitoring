@@ -1,4 +1,4 @@
-# Monitoring Solana validator performance metrics
+# Monitoring Solana Validator | Interpreting monitoring metrics
 
 *This post is Part 3 of a 3-part series about setting up proper monitoring on your Solana Validator.*
 
