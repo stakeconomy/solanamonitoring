@@ -112,4 +112,5 @@ Your newly installed TIG stack also has it's own telegraf agent that you need to
   urls = [ "http://127.0.0.1:8086" ]
   username = "telegraf"
   password = "password"
-'''
+
+```
