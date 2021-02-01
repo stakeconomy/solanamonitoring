@@ -85,7 +85,7 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
 ```
 # Global Agent Configuration
 [agent]
-  hostname = "hostname" # set this to a name you want to identify your node in the grafana dashboard
+  hostname = "mynode-mainnet" # set this to a name you want to identify your node in the grafana dashboard
   flush_interval = "15s"
   interval = "15s"
 
