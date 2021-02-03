@@ -6,22 +6,26 @@
 * [Part 2.](https://github.com/stakeconomy/solanamonitoring/blob/main/How%20to%20Install%20TIG%20Stack.md) How to Install Telegraf, InfluxDB, and Grafana
 * [Part 3.](https://github.com/stakeconomy/solanamonitoring/blob/main/Guidelines%20interpreting%20metrics.md) Interpreting monitoring metrics
 
-## Where metrics come from
+## Where the metrics come from
 
 ### Telegraf | A Metrics Collector For InfluxDB
 
 Telegraf can collect metrics from a wide array of inputs and write them to a wide array of outputs. It is plugin-driven for both collection and output of data so it is easily extendable. It is written in Go, which means that it is compiled and standalone binary that can be executed on any system with no need for external dependencies, or package management tools required.
 
-Telegraf is an open-source tool. It contains over 200 plugins for gathering and writing different types of data written by people who work with that data.
+### You can visualize the following data
 
-#### Telegraf benefits
-- Easy to setup
-- Minimal memory footprint
-- Over 200 plugins available
-- Able to send metrics to central InfluxDB without the need of client configuration
+- Server uptime
+- Server memory utilization - Used, cached, free
+- CPU utilization - Load average and usage
+- Number of CPU cores and each cpu utilization
+- Processes - stopped, sleeping, running e.t.c
+- Disk Utilization - Free and used space for / and all othe system partitions
+- Disk Inodes - / and all othe partitions in the system
+- Swap - usage and IO
+- Disk IO - requests, bytes and time
 
-#### Architecture
+### Metrics Explained
 
 ![Architecture](https://i.imgur.com/xmbND94.png)
 
-![test] (https://i.imgur.com/C3aIN1I.png)
+
