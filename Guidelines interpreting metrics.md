@@ -53,7 +53,9 @@ I have put most metrics in a detailed table, the normal and alarm table states w
 |Load (LA)| 1-15 | >15 | Server load is important. When server load is extremely high it's a good indicator something is wrong. I have seen scenario's with too little CPU cores, or too slow NVMe disks causing very high server load |
 |Memory usage| 1-25%  | >25%  | Memory usage is split between total, cache, used and free. The Solana validator takes around 10-20GB, the rest is cache in the OS.|
 |IOWait |0-3%|>3%|IOWait is pretty important measurement. Solana validators need fast NVMe disks and having much IOWait time basically means your disk is too slow to catch up.|
-|Disk Usage| 0-75% | >75% | Make sure you have enough free disk space available, a mainnet ledger directory can use from 150GB to more than a TB depending on the options used in validator startup.
+|Disk Usage| 0-75% | >75% | Make sure you have enough free disk space available, a mainnet ledger directory can use from 150GB to more than a TB depending on the options used in validator startup.|
+|Swap Usage| 0% | >1% | You basically want your server not to use swap. Sometimes this cannot be prevented but having a server use the swapspace means it's out of memory|
+
 ![Metrics-Explained](https://i.imgur.com/oTD0Uc4.png)
 
 
