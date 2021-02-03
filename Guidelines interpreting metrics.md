@@ -47,7 +47,7 @@ To have a good performing server and validator, all the different metrics in the
 
 I have put most pmetrics in a table, gave it an importance number of 1-10 where 10 is very important. and some details on what to do when numbers look bad.
 | metric  | normal value| alarm value| details|
-|---|---|---|
+|---------|-------------|------------|--------|
 | Server Load Average (LA)| 1-15 | >15 | Server load is important. When server load is extremely high it's a good indicator something is wrong. I have seen scenario's with too little CPU cores, or too slow NVMe disks causing very high server load |
 |   |   |   |
 |   |   |   |
