@@ -42,6 +42,6 @@ Telegraf can collect metrics from a wide array of inputs and write them to a wid
 
 ### Metrics Explained
 
-![Metrics-Explained](https://imgur.com/oTD0Uc4)
+![Metrics-Explained](https://i.imgur.com/oTD0Uc4.png)
 
 
