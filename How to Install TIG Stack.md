@@ -1,5 +1,4 @@
-# Monitoring Solana Validator | How to Install your own TIG Monitoring Stack 
-(Telegraf, InfluxDB, and Grafana)
+# Monitoring Solana Validator | How to Install Telegraf, InfluxDB, and Grafana
 
 This post describes howto setup your own local monitoring setup
 
