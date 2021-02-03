@@ -46,11 +46,11 @@ Telegraf can collect metrics from a wide array of inputs and write them to a wid
 To have a good performing server and validator, all the different metrics in the dashboard should be in it's best state. When one of the components in the table below if in a red state. the rest of the server would suffer from it and will probably result in high skiprate or a very short NVMe disk life. depending on what's going on.
 
 I have put most pmetrics in a table, gave it an importance number of 1-10 where 10 is very important. and some details on what to do when numbers look bad.
-| metric  | normal value| alarm value| details|
-|---------|-------------|------------|--------|
-| Server Load Average (LA)| 1-15 | >15 | Server load is important. When server load is extremely high it's a good indicator something is wrong. I have seen scenario's with too little CPU cores, or too slow NVMe disks causing very high server load |
-|   |   |   |
-|   |   |   |
+| metric  | normal | alarm | details|
+|---------|--------|-------|--------|
+|Load Average (LA)| 1-15 | >15 | Server load is important. When server load is extremely high it's a good indicator something is wrong. I have seen scenario's with too little CPU cores, or too slow NVMe disks causing very high server load |
+|   |   |   |  |
+|   |   |   |  |
 
 ![Metrics-Explained](https://i.imgur.com/oTD0Uc4.png)
 
