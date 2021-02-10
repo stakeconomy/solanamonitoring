@@ -48,11 +48,12 @@ To get all metrics from your local Validator RPC.
 In the examples below we setup the validator with user "sol" with it's home in /home/sol. It is required that the script is installed and run under that same user.
 You need to install the telegraf agent on your validator nodes. 
 
-To have full statistics that include a whole epoch, include:
+To have full statistics that include a whole epoch, make sure that your --limit-ledger-size configuration is big enough to store a whole epoch:
 
 ```       --limit-ledger-size <SHRED_COUNT>                       Keep this amount of shreds in root slots.```
 
-You can use 200000000 or leavy it empty. Using less schred's to save diskspace still works, but it will mess up your leaderslots and skiprate stats.
+You may use 200000000 or leavy it empty to use the default. 
+Using less schred's to save diskspace still works, but it will mess up your leaderslots and skiprate stats.
 
 ```
 # install telegraf
