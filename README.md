@@ -52,7 +52,7 @@ To have full statistics that include a whole epoch, make sure that your --limit-
 
 ```       --limit-ledger-size <SHRED_COUNT>                       Keep this amount of shreds in root slots.```
 
-You may use 200000000 or leavy it empty to use the default. 
+You may use 250000000 for ~1 epoch or leavy it empty to use the default. 
 Using less schred's to save diskspace still works, but it will mess up your leaderslots and skiprate stats.
 
 ```
