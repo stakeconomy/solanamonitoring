@@ -37,8 +37,7 @@ noVoting=$(ps aux | grep solana-validator | grep -c "\-\-no\-voting")
 if [ "$noVoting" -eq 0 ]; then
    if [ -z $identityPubkey ]; then identityPubkey=$($cli address --url $rpcURL); fi
    if [ -z $identityPubkey ]; then echo "auto-detection failed, please configure the identityPubkey in the script if not done"; exit 1; fi
-   if [ -z $voteAccount ]; then voteAccount=$($cli validators --url $rpcURL --output json-compact | jq -r '.currentValidators[] | select(.identityPubkey == '\"$identityPubkey\"') | .voteAccountPubkey'); fi
-   if [ -z $voteAccount ]; then voteAccount=$($cli validators --url $rpcURL --output json-compact | jq -r '.delinquentValidators[] | select(.identityPubkey == '\"$identityPubkey\"') | .voteAccountPubkey'); fi
+   if [ -z $voteAccount ]; then voteAccount=$($cli validators --url $rpcURL --output json-compact | jq -r '.validators[] | select(.identityPubkey == '\"$identityPubkey\"') | .voteAccountPubkey'); fi
    if [ -z $voteAccount ]; then echo "please configure the vote account in the script or wait for availability upon starting the node"; exit 1; fi
 fi
 
@@ -52,8 +51,8 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
     blockProduction=$($cli block-production --url $rpcURL --output json-compact 2>&- | grep -v Note:)
     validatorBlockProduction=$(jq -r '.leaders[] | select(.identityPubkey == '\"$identityPubkey\"')' <<<$blockProduction)
     validators=$($cli validators --url $rpcURL --output json-compact 2>&-)
-    currentValidatorInfo=$(jq -r '.currentValidators[] | select(.voteAccountPubkey == '\"$voteAccount\"')' <<<$validators)
-    delinquentValidatorInfo=$(jq -r '.delinquentValidators[] | select(.voteAccountPubkey == '\"$voteAccount\"')' <<<$validators)
+    currentValidatorInfo=$(jq -r '.validators[] | select(.voteAccountPubkey == '\"$voteAccount\"')' <<<$validators)
+    delinquentValidatorInfo=$(jq -r '.validators[] | select(.voteAccountPubkey == '\"$voteAccount\"' and .delinquent == true)' <<<$validators)
     if [[ ((-n "$currentValidatorInfo" || "$delinquentValidatorInfo" ))  ]] || [[ ("$validatorBlockTimeTest" -eq "1" ) ]]; then
         status=1 #status 0=validating 1=up 2=error 3=delinquent 4=stopped
         blockHeight=$(jq -r '.slot' <<<$validatorBlockTime)
@@ -106,7 +105,8 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
            epochInfo=$($cli epoch-info --url $rpcURL --output json-compact)
            epoch=$(jq -r '.epoch' <<<$epochInfo)
            pctEpochElapsed=$(echo "scale=2 ; 100 * $(jq -r '.slotIndex' <<<$epochInfo) / $(jq -r '.slotsInEpoch' <<<$epochInfo)" | bc)
-           logentry="$logentry,openFiles=$openfiles,validatorBalance=$validatorBalance,validatorVoteBalance=$validatorVoteBalance,nodes=$nodes,epoch=$epoch,pctEpochElapsed=$pctEpochElapsed"
+           validatorCreditsCurrent=$($cli vote-account $voteAccount | grep credits/slots | cut -d ":" -f 2 | cut -d "/" -f 1 | awk 'NR==1{print $1}')
+           logentry="$logentry,openFiles=$openfiles,validatorBalance=$validatorBalance,validatorVoteBalance=$validatorVoteBalance,nodes=$nodes,epoch=$epoch,pctEpochElapsed=$pctEpochElapsed,validatorCreditsCurrent=$validatorCreditsCurrent"
         fi
         logentry="nodemonitor,pubkey=$identityPubkey status=$status,$logentry $now"
     else
@@ -114,4 +114,3 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
         logentry="nodemonitor,pubkey=$identityPubkey status=$status $now"
     fi
  echo $logentry
-
