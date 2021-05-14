@@ -17,6 +17,7 @@ binDir=""              # auto detection of the solana binary directory can fail 
 rpcURL=""              # default is localhost with port number autodiscovered, alternatively it can be specified like http://custom.rpc.com:port
 format="SOL"           # amounts shown in 'SOL' instead of lamports
 now=$(date +%s%N)      # date in influx format
+timezone=""            # time zone for epoch ends metric
 #####  END CONFIG  ##################################################################################################
 
 if [ -n  "$binDir" ]; then
