@@ -84,6 +84,8 @@ cd solanamonitoring
 
 
 ```
+You might need to add your local RPC endpoint like "https://localhost:8899" and/or a timezone like "Europe / Amsterdam" to the monitor.sh script if you run into issues
+
 
 # Example telegraf configuration
 Add the configuration file /etc/telegraf/telegraf.conf based on the example below:
@@ -124,8 +126,8 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
 
 [[inputs.exec]]
   commands = ["sudo su -c /home/sol/solanamonitoring/monitor.sh -s /bin/bash sol"] # change home and username to the useraccount your validator runs at
-  interval = "30s"
-  timeout = "30s"
+  interval = "5m"
+  timeout = "1m"
   data_format = "influx"
   data_type = "integer"
 ```
