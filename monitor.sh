@@ -38,7 +38,7 @@ noVoting=$(ps aux | grep solana-validator | grep -c "\-\-no\-voting")
 if [ "$noVoting" -eq 0 ]; then
    if [ -z $identityPubkey ]; then identityPubkey=$($cli address --url $rpcURL); fi
    if [ -z $identityPubkey ]; then echo "auto-detection failed, please configure the identityPubkey in the script if not done"; exit 1; fi
-   if [ -z $voteAccount ]; then voteAccount=$($cli validators --url $rpcURL --output json-compact | jq -r '.validators[] | select(.identityPubkey == '\"$identityPubkey\"') | .voteAccountPubkey'); fi
+   if [ -z $voteAccount ]; then voteAccount=$($cli validators --url $rpcURL --output json-compact | jq -r 'first (.validators[] | select(.identityPubkey == '\"$identityPubkey\"')) | .voteAccountPubkey'); fi
    if [ -z $voteAccount ]; then echo "please configure the vote account in the script or wait for availability upon starting the node"; exit 1; fi
 fi
 
