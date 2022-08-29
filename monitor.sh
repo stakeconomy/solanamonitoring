@@ -17,7 +17,7 @@ binDir=""              # auto detection of the solana binary directory can fail 
 rpcURL=""              # default is localhost with port number autodiscovered, alternatively it can be specified like http://custom.rpc.com:port
 format="SOL"           # amounts shown in 'SOL' instead of lamports
 now=$(date +%s%N)      # date in influx format
-timezone=""            # time zone for epoch ends metric
+timezone="UTC+2"            # time zone for epoch ends metric
 #####  END CONFIG  ##################################################################################################
 
 if [ -n  "$binDir" ]; then
@@ -65,6 +65,7 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
         if [ "$format" == "SOL" ]; then activatedStake=$(echo "scale=2 ; $activatedStake / 1000000000.0" | bc); fi
               credits=$(jq -r '.credits' <<<$delinquentValidatorInfo)
               version=$(jq -r '.version' <<<$delinquentValidatorInfo | sed 's/ /-/g')
+              version=${version//./}
               commission=$(jq -r '.commission' <<<$delinquentValidatorInfo)
               logentry="rootSlot=$(jq -r '.rootSlot' <<<$delinquentValidatorInfo),lastVote=$(jq -r '.lastVote' <<<$delinquentValidatorInfo),credits=$credits,activatedStake=$activatedStake,version=\"$version\",commission=$commission"
         elif [ -n "$currentValidatorInfo" ]; then
@@ -72,6 +73,7 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
               activatedStake=$(jq -r '.activatedStake' <<<$currentValidatorInfo)
               credits=$(jq -r '.credits' <<<$currentValidatorInfo)
               version=$(jq -r '.version' <<<$currentValidatorInfo | sed 's/ /-/g')
+              version=${version//./}
               commission=$(jq -r '.commission' <<<$currentValidatorInfo)
               logentry="rootSlot=$(jq -r '.rootSlot' <<<$currentValidatorInfo),lastVote=$(jq -r '.lastVote' <<<$currentValidatorInfo)"
               leaderSlots=$(jq -r '.leaderSlots' <<<$validatorBlockProduction)
@@ -124,7 +126,7 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
            else
            epochEnds=$(TZ=$timezone date -d "$VAR1 days $VAR2 hours $VAR3 minutes $VAR4 seconds" +"%m/%d/%Y %H:%M")
            fi
-           epochEnds=$(echo \"$epochEnds\")
+           epochEnds=$(( $(date -d "$epochEnds" +%s) * 1000 ))
            voteElapsed=$(echo "scale=4; $pctEpochElapsed / 100 * 432000" | bc)
            pctVote=$(echo "scale=4; $validatorCreditsCurrent/$voteElapsed * 100" | bc)
            logentry="$logentry,openFiles=$openfiles,validatorBalance=$validatorBalance,validatorVoteBalance=$validatorVoteBalance,nodes=$nodes,epoch=$epoch,pctEpochElapsed=$pctEpochElapsed,validatorCreditsCurrent=$validatorCreditsCurrent,epochEnds=$epochEnds,pctVote=$pctVote"
