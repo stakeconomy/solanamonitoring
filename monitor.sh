@@ -67,7 +67,7 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
               version=$(jq -r '.version' <<<$delinquentValidatorInfo | sed 's/ /-/g')
               version=${version//./}
               commission=$(jq -r '.commission' <<<$delinquentValidatorInfo)
-              logentry="rootSlot=$(jq -r '.rootSlot' <<<$delinquentValidatorInfo),lastVote=$(jq -r '.lastVote' <<<$delinquentValidatorInfo),credits=$credits,activatedStake=$activatedStake,version=\"$version\",commission=$commission"
+              logentry="rootSlot=$(jq -r '.rootSlot' <<<$delinquentValidatorInfo),lastVote=$(jq -r '.lastVote' <<<$delinquentValidatorInfo),credits=$credits,activatedStake=$activatedStake,version=$version,commission=$commission"
         elif [ -n "$currentValidatorInfo" ]; then
               status=0
               activatedStake=$(jq -r '.activatedStake' <<<$currentValidatorInfo)
@@ -101,7 +101,7 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
               pctVersionActive=$(echo "scale=2 ; 100 * $versionActiveStake / $totalCurrentStake" | bc)
               pctNewerVersions=$(echo "scale=2 ; 100 * $stakeNewerVersions / $totalCurrentStake" | bc)
               logentry="$logentry,leaderSlots=$leaderSlots,skippedSlots=$skippedSlots,pctSkipped=$pctSkipped,pctTotSkipped=$pctTotSkipped,pctSkippedDelta=$pctSkippedDelta,pctTotDelinquent=$pctTotDelinquent"
-              logentry="$logentry,version=\"$version\",pctNewerVersions=$pctNewerVersions,commission=$commission,activatedStake=$activatedStake,credits=$credits,solanaPrice=$solanaPrice"
+              logentry="$logentry,version=$version,pctNewerVersions=$pctNewerVersions,commission=$commission,activatedStake=$activatedStake,credits=$credits,solanaPrice=$solanaPrice"
            else status=2; fi
         if [ "$additionalInfo" == "on" ]; then
            nodes=$($cli gossip --url $rpcURL | grep -Po "Nodes:\s+\K[0-9]+")
