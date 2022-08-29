@@ -65,15 +65,15 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
         if [ "$format" == "SOL" ]; then activatedStake=$(echo "scale=2 ; $activatedStake / 1000000000.0" | bc); fi
               credits=$(jq -r '.credits' <<<$delinquentValidatorInfo)
               version=$(jq -r '.version' <<<$delinquentValidatorInfo | sed 's/ /-/g')
-              version=${version//./}
+              version2=${version//./}
               commission=$(jq -r '.commission' <<<$delinquentValidatorInfo)
-              logentry="rootSlot=$(jq -r '.rootSlot' <<<$delinquentValidatorInfo),lastVote=$(jq -r '.lastVote' <<<$delinquentValidatorInfo),credits=$credits,activatedStake=$activatedStake,version=$version,commission=$commission"
+              logentry="rootSlot=$(jq -r '.rootSlot' <<<$delinquentValidatorInfo),lastVote=$(jq -r '.lastVote' <<<$delinquentValidatorInfo),credits=$credits,activatedStake=$activatedStake,version=$version2,commission=$commission"
         elif [ -n "$currentValidatorInfo" ]; then
               status=0
               activatedStake=$(jq -r '.activatedStake' <<<$currentValidatorInfo)
               credits=$(jq -r '.credits' <<<$currentValidatorInfo)
               version=$(jq -r '.version' <<<$currentValidatorInfo | sed 's/ /-/g')
-              version=${version//./}
+              version2=${version//./}
               commission=$(jq -r '.commission' <<<$currentValidatorInfo)
               logentry="rootSlot=$(jq -r '.rootSlot' <<<$currentValidatorInfo),lastVote=$(jq -r '.lastVote' <<<$currentValidatorInfo)"
               leaderSlots=$(jq -r '.leaderSlots' <<<$validatorBlockProduction)
@@ -101,7 +101,7 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
               pctVersionActive=$(echo "scale=2 ; 100 * $versionActiveStake / $totalCurrentStake" | bc)
               pctNewerVersions=$(echo "scale=2 ; 100 * $stakeNewerVersions / $totalCurrentStake" | bc)
               logentry="$logentry,leaderSlots=$leaderSlots,skippedSlots=$skippedSlots,pctSkipped=$pctSkipped,pctTotSkipped=$pctTotSkipped,pctSkippedDelta=$pctSkippedDelta,pctTotDelinquent=$pctTotDelinquent"
-              logentry="$logentry,version=$version,pctNewerVersions=$pctNewerVersions,commission=$commission,activatedStake=$activatedStake,credits=$credits,solanaPrice=$solanaPrice"
+              logentry="$logentry,version=$version2,pctNewerVersions=$pctNewerVersions,commission=$commission,activatedStake=$activatedStake,credits=$credits,solanaPrice=$solanaPrice"
            else status=2; fi
         if [ "$additionalInfo" == "on" ]; then
            nodes=$($cli gossip --url $rpcURL | grep -Po "Nodes:\s+\K[0-9]+")
