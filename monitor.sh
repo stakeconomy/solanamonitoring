@@ -115,19 +115,27 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
            VAR2=$(echo $TIME | grep -oE '[0-9]+h'   | grep -o -E '[0-9]+')
            VAR3=$(echo $TIME | grep -oE '[0-9]+m'   | grep -o -E '[0-9]+')
            VAR4=$(echo $TIME | grep -oE '[0-9]+s'   | grep -o -E '[0-9]+')
+           
            if [ -z "$VAR1" ];
            then
            VAR1=0
-           elif [ -z "$VAR2" ];
+           fi
+
+           if [ -z "$VAR2" ];
            then
            VAR2=0
-           elif [ -z "$VAR3" ];
+           fi
+
+           if [ -z "$VAR3" ];
            then
            VAR3=0
-           elif [ -z "$VAR4" ];
+           fi
+
+           if [ -z "$VAR4" ];
            then
            VAR4=0
            fi
+           
            epochEnds=$(TZ=$timezone date -d "$VAR1 days $VAR2 hours $VAR3 minutes $VAR4 seconds" +"%m/%d/%Y %H:%M")
            epochEnds=$(( $(TZ=$timezone date -d "$epochEnds" +%s) * 1000 ))
            voteElapsed=$(echo "scale=4; $pctEpochElapsed / 100 * 432000" | bc)
