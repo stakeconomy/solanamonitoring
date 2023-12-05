@@ -17,7 +17,7 @@ binDir=""              # auto detection of the solana binary directory can fail 
 rpcURL=""              # default is localhost with port number autodiscovered, alternatively it can be specified like http://custom.rpc.com:port
 format="SOL"           # amounts shown in 'SOL' instead of lamports
 now=$(date +%s%N)      # date in influx format
-timezone="UTC+2"            # time zone for epoch ends metric
+timezone="UTC"            # time zone for epoch ends metric
 #####  END CONFIG  ##################################################################################################
 
 if [ -n  "$binDir" ]; then
@@ -111,23 +111,33 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
            pctEpochElapsed=$(echo "scale=2 ; 100 * $(jq -r '.slotIndex' <<<$epochInfo) / $(jq -r '.slotsInEpoch' <<<$epochInfo)" | bc)
            validatorCreditsCurrent=$($cli vote-account $voteAccount | grep credits/slots | cut -d ":" -f 2 | cut -d "/" -f 1 | awk 'NR==1{print $1}')
            TIME=$($cli epoch-info | grep "Epoch Completed Time" | cut -d "(" -f 2 | awk '{print $1,$2,$3,$4}')
-           VAR1=$(echo $TIME | awk '{print $1}' | grep -o -E '[0-9]+')
-           VAR2=$(echo $TIME | awk '{print $2}' | grep -o -E '[0-9]+')
-           VAR3=$(echo $TIME | awk '{print $3}' | grep -o -E '[0-9]+')
-           VAR4=$(echo $TIME | awk '{print $4}' | grep -o -E '[0-9]+')
-           if [[ -z "$VAR4" && -z "$VAR3" && -z "$VAR2" ]];
+           VAR1=$(echo $TIME | grep -oE '[0-9]+day' | grep -o -E '[0-9]+')
+           VAR2=$(echo $TIME | grep -oE '[0-9]+h'   | grep -o -E '[0-9]+')
+           VAR3=$(echo $TIME | grep -oE '[0-9]+m'   | grep -o -E '[0-9]+')
+           VAR4=$(echo $TIME | grep -oE '[0-9]+s'   | grep -o -E '[0-9]+')
+           
+           if [ -z "$VAR1" ];
            then
-           epochEnds=$(TZ=$timezone date -d "$VAR1 seconds" +"%m/%d/%Y %H:%M")
-           elif [[ -z "$VAR4" && -z "$VAR3" ]] ;
-           then
-           epochEnds=$(TZ=$timezone date -d "$VAR1 minutes $VAR2 seconds" +"%m/%d/%Y %H:%M")
-           elif [ -z "$VAR4" ];
-           then
-           epochEnds=$(TZ=$timezone date -d "$VAR1 hours $VAR2 minutes $VAR3 seconds" +"%m/%d/%Y %H:%M")
-           else
-           epochEnds=$(TZ=$timezone date -d "$VAR1 days $VAR2 hours $VAR3 minutes $VAR4 seconds" +"%m/%d/%Y %H:%M")
+           VAR1=0
            fi
-           epochEnds=$(( $(date -d "$epochEnds" +%s) * 1000 ))
+
+           if [ -z "$VAR2" ];
+           then
+           VAR2=0
+           fi
+
+           if [ -z "$VAR3" ];
+           then
+           VAR3=0
+           fi
+
+           if [ -z "$VAR4" ];
+           then
+           VAR4=0
+           fi
+           
+           epochEnds=$(TZ=$timezone date -d "$VAR1 days $VAR2 hours $VAR3 minutes $VAR4 seconds" +"%m/%d/%Y %H:%M")
+           epochEnds=$(( $(TZ=$timezone date -d "$epochEnds" +%s) * 1000 ))
            voteElapsed=$(echo "scale=4; $pctEpochElapsed / 100 * 432000" | bc)
            pctVote=$(echo "scale=4; $validatorCreditsCurrent/$voteElapsed * 100" | bc)
            logentry="$logentry,openFiles=$openfiles,validatorBalance=$validatorBalance,validatorVoteBalance=$validatorVoteBalance,nodes=$nodes,epoch=$epoch,pctEpochElapsed=$pctEpochElapsed,validatorCreditsCurrent=$validatorCreditsCurrent,epochEnds=$epochEnds,pctVote=$pctVote,tps=$tps"
