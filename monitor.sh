@@ -44,7 +44,7 @@ fi
 
 validatorBalance=$($cli balance $identityPubkey | grep -o '[0-9.]*')
 validatorVoteBalance=$($cli balance $voteAccount | grep -o '[0-9.]*')
-solanaPrice=$(curl -O -s 'GET' 'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd' -H 'accept: application/json' | jq -r .solana.usd)
+solanaPrice=$(curl -s 'GET' 'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd' -H 'accept: application/json' | jq -r .solana.usd)
 openfiles=$(cat /proc/sys/fs/file-nr | awk '{ print $1 }')
 validatorCheck=$($cli validators --url $rpcURL)
 
