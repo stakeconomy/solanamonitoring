@@ -107,9 +107,9 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
     report_active = false
 [[inputs.disk]]
     ignore_fs = ["devtmpfs", "devfs"]
-[[inputs.io]]
+[[inputs.diskio]]
 [[inputs.mem]]
-[[inputs.net]]
+[[inputs.nstat]]
 [[inputs.system]]
 [[inputs.swap]]
 [[inputs.netstat]]
