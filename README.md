@@ -109,7 +109,7 @@ Change your hostname, mountpoints to monitor, location of the monitor script and
     ignore_fs = ["devtmpfs", "devfs"]
 [[inputs.diskio]]
 [[inputs.mem]]
-[[inputs.nstat]]
+[[inputs.net]]
 [[inputs.system]]
 [[inputs.swap]]
 [[inputs.netstat]]
