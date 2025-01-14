@@ -42,8 +42,8 @@ if [ "$noVoting" -eq 0 ]; then
    if [ -z $voteAccount ]; then echo "please configure the vote account in the script or wait for availability upon starting the node"; exit 1; fi
 fi
 
-validatorBalance=$($cli balance $identityPubkey | grep -o '[0-9.]*')
-validatorVoteBalance=$($cli balance $voteAccount | grep -o '[0-9.]*')
+validatorBalance=$($cli balance $identityPubkey --url $rpcURL | grep -o '[0-9.]*')
+validatorVoteBalance=$($cli balance $voteAccount --url $rpcURL | grep -o '[0-9.]*')
 solanaPrice=$(curl -s 'GET' 'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd' -H 'accept: application/json' | jq -r .solana.usd)
 openfiles=$(cat /proc/sys/fs/file-nr | awk '{ print $1 }')
 validatorCheck=$($cli validators --url $rpcURL)
@@ -109,8 +109,8 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
            epoch=$(jq -r '.epoch' <<<$epochInfo)
            tps=$(jq -r '.transactionCount' <<<$epochInfo)
            pctEpochElapsed=$(echo "scale=2 ; 100 * $(jq -r '.slotIndex' <<<$epochInfo) / $(jq -r '.slotsInEpoch' <<<$epochInfo)" | bc)
-           validatorCreditsCurrent=$($cli vote-account $voteAccount | grep credits/slots | cut -d ":" -f 2 | cut -d "/" -f 1 | awk 'NR==1{print $1}')
-           TIME=$($cli epoch-info | grep "Epoch Completed Time" | cut -d "(" -f 2 | awk '{print $1,$2,$3,$4}')
+           validatorCreditsCurrent=$($cli vote-account $voteAccount --url $rpcURL | grep credits/slots | cut -d ":" -f 2 | cut -d "/" -f 1 | awk 'NR==1{print $1}')
+           TIME=$($cli epoch-info --url $rpcURL | grep "Epoch Completed Time" | cut -d "(" -f 2 | awk '{print $1,$2,$3,$4}')
            VAR1=$(echo $TIME | grep -oE '[0-9]+day' | grep -o -E '[0-9]+')
            VAR2=$(echo $TIME | grep -oE '[0-9]+h'   | grep -o -E '[0-9]+')
            VAR3=$(echo $TIME | grep -oE '[0-9]+m'   | grep -o -E '[0-9]+')
