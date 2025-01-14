@@ -29,12 +29,12 @@ else
 fi
 
 if [ -z $rpcURL ]; then
-   rpcPort=$(ps aux | grep solana-validator | grep -Po "\-\-rpc\-port\s+\K[0-9]+")
+   rpcPort=$(ps aux | grep agave-validator | grep -Po "\-\-rpc\-port\s+\K[0-9]+")
    if [ -z $rpcPort ]; then echo "nodemonitor,pubkey=$identityPubkey status=4 $now"; exit 1; fi
    rpcURL="http://127.0.0.1:$rpcPort"
 fi
 
-noVoting=$(ps aux | grep solana-validator | grep -c "\-\-no\-voting")
+noVoting=$(ps aux | grep agave-validator | grep -c "\-\-no\-voting")
 if [ "$noVoting" -eq 0 ]; then
    if [ -z $identityPubkey ]; then identityPubkey=$($cli address --url $rpcURL); fi
    if [ -z $identityPubkey ]; then echo "auto-detection failed, please configure the identityPubkey in the script if not done"; exit 1; fi
@@ -42,8 +42,8 @@ if [ "$noVoting" -eq 0 ]; then
    if [ -z $voteAccount ]; then echo "please configure the vote account in the script or wait for availability upon starting the node"; exit 1; fi
 fi
 
-validatorBalance=$($cli balance $identityPubkey | grep -o '[0-9.]*')
-validatorVoteBalance=$($cli balance $voteAccount | grep -o '[0-9.]*')
+validatorBalance=$($cli balance $identityPubkey --url $rpcURL | grep -o '[0-9.]*')
+validatorVoteBalance=$($cli balance $voteAccount --url $rpcURL | grep -o '[0-9.]*')
 solanaPrice=$(curl -s 'GET' 'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd' -H 'accept: application/json' | jq -r .solana.usd)
 openfiles=$(cat /proc/sys/fs/file-nr | awk '{ print $1 }')
 validatorCheck=$($cli validators --url $rpcURL)
@@ -85,7 +85,8 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
               if [ -z "$leaderSlots" ]; then leaderSlots=0 skippedSlots=0 pctSkipped=0; fi
               if [ -n "$totalBlocksProduced" ]; then
                  pctTotSkipped=$(echo "scale=2 ; 100 * $totalSlotsSkipped / $totalBlocksProduced" | bc)
-                 pctSkippedDelta=$(echo "scale=2 ; 100 * ($pctSkipped - $pctTotSkipped) / $pctTotSkipped" | bc)
+                 if [ "$pctSkipped" = 0 ] || [ "$pctTotSkipped" = 0 ]; then pctSkippedDelta=0
+                 else pctSkippedDelta=$(echo "scale=2 ; 100 * ($pctSkipped - $pctTotSkipped) / $pctTotSkipped" | bc); fi
               fi
               if [ -z "$pctTotSkipped" ]; then pctTotSkipped=0 pctSkippedDelta=0; fi
               totalActiveStake=$(jq -r '.totalActiveStake' <<<$validators)
@@ -109,7 +110,7 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
            epoch=$(jq -r '.epoch' <<<$epochInfo)
            tps=$(jq -r '.transactionCount' <<<$epochInfo)
            pctEpochElapsed=$(echo "scale=2 ; 100 * $(jq -r '.slotIndex' <<<$epochInfo) / $(jq -r '.slotsInEpoch' <<<$epochInfo)" | bc)
-           validatorCreditsCurrent=$($cli vote-account $voteAccount | grep credits/max | cut -d ":" -f 2 | cut -d "/" -f 1 | awk 'NR==1{print $1}')
+           validatorCreditsCurrent=$($cli vote-account $voteAccount --url $rpcURL | grep credits/max | cut -d ":" -f 2 | cut -d "/" -f 1 | awk 'NR==1{print $1}')
            TIME=$($cli epoch-info | grep "Epoch Completed Time" | cut -d "(" -f 2 | awk '{print $1,$2,$3,$4}')
            VAR1=$(echo $TIME | grep -oE '[0-9]+day' | grep -o -E '[0-9]+')
            VAR2=$(echo $TIME | grep -oE '[0-9]+h'   | grep -o -E '[0-9]+')
@@ -139,7 +140,8 @@ if [ $(grep -c $voteAccount <<< $validatorCheck) == 0  ]; then echo "validator n
            epochEnds=$(TZ=$timezone date -d "$VAR1 days $VAR2 hours $VAR3 minutes $VAR4 seconds" +"%m/%d/%Y %H:%M")
            epochEnds=$(( $(TZ=$timezone date -d "$epochEnds" +%s) * 1000 ))
            voteElapsed=$(echo "scale=4; $pctEpochElapsed / 100 * 432000" | bc)
-           pctVote=$(echo "scale=4; $validatorCreditsCurrent/$voteElapsed * 100" | bc)
+           if [ "$voteElapsed" = 0 ]; then pctVote=0
+           else pctVote=$(echo "scale=4; $validatorCreditsCurrent/$voteElapsed * 100" | bc); fi
            logentry="$logentry,openFiles=$openfiles,validatorBalance=$validatorBalance,validatorVoteBalance=$validatorVoteBalance,nodes=$nodes,epoch=$epoch,pctEpochElapsed=$pctEpochElapsed,validatorCreditsCurrent=$validatorCreditsCurrent,epochEnds=$epochEnds,pctVote=$pctVote,tps=$tps"
         fi
         logentry="nodemonitor,pubkey=$identityPubkey status=$status,$logentry $now"
