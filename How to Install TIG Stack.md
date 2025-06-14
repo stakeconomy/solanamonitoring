@@ -8,7 +8,7 @@
 
 ## Installation & Setup
 
-We are going to setup a TIG monitoring stack for your solana infrastructure. So you can collects perofrmance metrics from your servers and applications running.
+We are going to setup a TIG monitoring stack for your solana infrastructure. So you can collects performance metrics from your servers and applications running.
 
 *Telegraf* - Data collector written in Go for collecting, processing, and aggregating and writting metrics. Its a plugin driven tool, we will use a few plugins while implementing our use case.
 *InfluxDB* - Scalable time series database for metrics, events and real-time analytics.
