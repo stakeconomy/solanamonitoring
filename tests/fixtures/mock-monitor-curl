@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+
+set -u
+
+fixture_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+payload=""
+endpoint=""
+
+while (($#)); do
+  case "$1" in
+    --data|-d)
+      payload="${2:-}"
+      shift 2
+      ;;
+    --max-time|--header|-H)
+      shift 2
+      ;;
+    --silent|--show-error|--fail|-s|-S|-f)
+      shift
+      ;;
+    *)
+      endpoint="$1"
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$payload" ]]; then
+  if [[ "${MOCK_PRICE_FAIL:-0}" == 1 ]]; then
+    exit 22
+  fi
+  printf '%s\n' '{"solana":{"usd":100.21}}'
+  exit 0
+fi
+
+if [[ "${MOCK_RPC_FAIL:-0}" == 1 ]]; then
+  exit 22
+fi
+
+if jq -e 'type == "array" and any(.[]; .id == "performanceFallback")' >/dev/null 2>&1 <<<"$payload"; then
+  if [[ -n "${MOCK_REQUIRE_PERFORMANCE_ENDPOINT:-}" && \
+        "$endpoint" != "$MOCK_REQUIRE_PERFORMANCE_ENDPOINT" ]]; then
+    exit 22
+  fi
+  if [[ "${MOCK_PUBLIC_PERFORMANCE_SUCCESS:-0}" == 1 ]]; then
+    printf '%s\n' '[{"jsonrpc":"2.0","id":"performanceGenesis","result":"4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"},{"jsonrpc":"2.0","id":"performanceFallback","result":[{"slot":437726200,"numSlots":100,"numTransactions":50000,"numNonVoteTransactions":12000,"samplePeriodSecs":18}]}]'
+    exit 0
+  fi
+  exit 22
+fi
+
+if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$payload"; then
+  if [[ "${MOCK_BATCH_FAIL:-0}" == 1 ]]; then
+    exit 22
+  fi
+  batch_filter='.'
+  if [[ "${MOCK_EMPTY_PERFORMANCE:-0}" == 1 ]]; then
+    batch_filter+=' | map(if .id == "performance" then .result = [] else . end)'
+  fi
+  if [[ "${MOCK_UNKNOWN_GENESIS:-0}" == 1 ]]; then
+    batch_filter+=' | map(if .id == "genesisHash" then .result = "UnknownGenesis111111111111111111111111111" else . end)'
+  fi
+  exec jq "$batch_filter" "$fixture_dir/monitor-batch.json"
+fi
+
+if [[ "$(jq -r '.method // ""' <<<"$payload")" == "getVoteAccounts" ]]; then
+  if jq -e '.params[0].keepUnstakedDelinquents == true' >/dev/null 2>&1 <<<"$payload"; then
+    printf 'expanded unstaked delinquent query is not allowed\n' >&2
+    exit 22
+  fi
+  if [[ "${MOCK_MULTIPLE_VOTES:-0}" == 1 ]]; then
+    jq '.result.current += [(.result.current[0] | .votePubkey = "SecondVote1111111111111111111111111111111111")]' \
+      "$fixture_dir/monitor-vote-accounts.json"
+  else
+    exec jq . "$fixture_dir/monitor-vote-accounts.json"
+  fi
+fi
+
+exit 22

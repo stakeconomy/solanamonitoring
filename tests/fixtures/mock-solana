@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+
+set -u
+
+case "${1:-}" in
+    address)
+        printf '%s\n' 'Identity111111111111111111111111111111111'
+        ;;
+    epoch-info)
+        cat <<'EOF'
+Epoch: 1026
+Epoch Completed Percent: 4.167%
+Epoch Completed Time: 1h 8m 0s/1day 3h 11m 4s (1day 2h 3m 4s remaining)
+EOF
+        ;;
+    config)
+        if [[ "${2:-}" == "get" ]]; then
+            printf '%s\n' 'Config File: /mock/.config/solana/cli/config.yml'
+            printf '%s\n' 'RPC URL: https://configured-rpc.invalid'
+            printf '%s\n' 'WebSocket URL: wss://configured-rpc.invalid'
+        else
+            printf 'unexpected mock config command\n' >&2
+            exit 2
+        fi
+        ;;
+    stakes)
+        if [[ "${MOCK_STAKE_FAILURE:-0}" == "1" ]]; then
+            printf '%s\n' 'RPC request error: getProgramAccounts unavailable' >&2
+            exit 1
+        fi
+        if [[ -n "${MOCK_STAKE_RAW:-}" ]]; then
+            printf '%s\n' "$MOCK_STAKE_RAW"
+        elif [[ -z "${MOCK_STAKE_FIXTURE:-}" ]]; then
+            printf '%s\n' 'No stake accounts found'
+        else
+            command cat "$MOCK_STAKE_FIXTURE"
+        fi
+        ;;
+    *)
+        printf 'unexpected mock command: %s\n' "${1:-}" >&2
+        exit 2
+        ;;
+esac
