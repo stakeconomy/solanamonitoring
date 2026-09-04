@@ -1,0 +1,77 @@
+# This example assumes Telegraf runs as its unprivileged service user and has
+# one narrow sudo rule permitting monitor.sh to run as the validator user.
+# Replace the hostname, validator user, paths, and RPC URL. Keep the output URL
+# when publishing to the Stakeconomy community dashboard.
+
+[agent]
+  hostname = "mynode-mainnet"
+  interval = "15s"
+  flush_interval = "15s"
+  collection_jitter = "2s"
+  flush_jitter = "5s"
+  metric_batch_size = 1000
+  metric_buffer_limit = 10000
+  skip_processors_after_aggregators = true
+
+[[inputs.cpu]]
+  # Grafana queries cpu-total only. Per-core metrics account for a large part
+  # of the community database's active-series count.
+  percpu = false
+  totalcpu = true
+  collect_cpu_time = false
+  report_active = false
+  fieldpass = ["usage_idle", "usage_user", "usage_system", "usage_softirq", "usage_iowait", "usage_steal"]
+
+[[inputs.disk]]
+  # Keep tmpfs so an accounts RAM disk remains visible.
+  interval = "1m"
+  # Replace/add paths to match the actual mount points on this validator.
+  mount_points = ["/", "/solana", "/solana/ledger", "/solana/accounts", "/solana/accounts_disk", "/solana/snapshots"]
+  ignore_fs = ["devtmpfs", "devfs", "squashfs", "overlay", "nsfs", "iso9660"]
+  fieldpass = ["used_percent"]
+  tagexclude = ["device", "fstype", "mode", "label"]
+
+[[inputs.mem]]
+  fieldpass = ["total", "used", "free", "cached", "used_percent"]
+
+[[inputs.net]]
+  fieldpass = ["bytes_recv", "bytes_sent", "drop_in", "drop_out", "err_in", "err_out", "udp_indatagrams", "udp_outdatagrams"]
+
+  [inputs.net.tagdrop]
+    interface = ["lo", "docker*", "veth*", "br-*", "virbr*", "tailscale*", "wg*", "tun*", "tap*", "cni*", "flannel*", "cali*", "kube*", "nodelocal*", "nodellocal*"]
+
+[[inputs.system]]
+  fieldpass = ["load1", "load5", "load15", "uptime", "n_cpus"]
+
+[[inputs.swap]]
+  interval = "30s"
+  fieldpass = ["total", "used", "used_percent"]
+
+[[inputs.netstat]]
+  fieldpass = ["tcp_established", "tcp_listen", "tcp_syn_recv", "tcp_time_wait", "tcp_close_wait"]
+
+[[inputs.nstat]]
+  interval = "30s"
+  dump_zeros = true
+  fieldpass = ["UdpInCsumErrors", "UdpInErrors", "UdpNoPorts", "UdpRcvbufErrors", "UdpSndbufErrors"]
+
+[[inputs.processes]]
+  interval = "30s"
+  fieldpass = ["total", "running", "blocked", "zombies"]
+
+[[inputs.kernel]]
+  fieldpass = ["context_switches"]
+
+[[inputs.exec]]
+  commands = ["/usr/bin/sudo -n -H -u VALIDATOR_USER -- /home/VALIDATOR_USER/solanamonitoring/monitor.sh --rpc-url http://127.0.0.1:8899 --rpc-timeout 20 --price-timeout 3"]
+  interval = "1m"
+  timeout = "1m"
+  data_format = "influx"
+
+[[outputs.influxdb]]
+  # The community ingestion endpoint is intentionally open, so no credentials
+  # are configured here.
+  database = "metricsdb"
+  urls = ["http://metrics.stakeconomy.com:8086"]
+  timeout = "5s"
+  skip_database_creation = true

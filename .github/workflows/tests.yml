@@ -1,0 +1,25 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Check shell syntax
+        run: bash -n monitor.sh tests/test-dashboard.sh tests/test-monitor.sh tests/test-telegraf.sh
+      - name: Test monitor
+        run: ./tests/test-monitor.sh
+      - name: Test dashboard
+        run: ./tests/test-dashboard.sh
+      - name: Test Telegraf profiles
+        run: ./tests/test-telegraf.sh

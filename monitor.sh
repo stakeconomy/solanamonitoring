@@ -1,215 +1,525 @@
-#!/bin/bash
-# set -x # uncomment to enable debug
+#!/usr/bin/env bash
+# Solana Validator Monitoring Script v0.15
+# Emits one Influx line-protocol record for Telegraf.
 
-#####    Packages required: jq, bc
-#####    Solana Validator Monitoring Script v.0.14 to be used with Telegraf / Grafana / InfluxDB
-#####    Fetching data from Solana validators, outputs metrics in Influx Line Protocol on stdout
-#####    Created: 14 Jan 18:28 CET 2021 by Stakeconomy.com. Forked from original Zabbix nodemonitor.sh script created by Stakezone
-#####    For support post your questions in the #monitoring channel in the Solana discord server
+set -u
+set -o pipefail
 
-#####    CONFIG    ##################################################################################################
-configDir="$HOME/.config/solana" # the directory for the config files, eg.: /home/user/.config/solana
-##### optional:        #
-identityPubkey=""      # identity pubkey for the validator, insert if autodiscovery fails
-voteAccount=""         # vote account address for the validator, specify if there are more than one or if autodiscovery fails
-additionalInfo="on"    # set to 'on' for additional general metrics like balance on your vote and identity accounts, number of validator nodes, epoch number and percentage epoch elapsed
-binDir=""              # auto detection of the solana binary directory can fail or an alternative custom installation is preferred, in case insert like $HOME/solana/target/release
-rpcURL=""              # default is localhost with port number autodiscovered, alternatively it can be specified like http://custom.rpc.com:port
-format="SOL"           # amounts shown in 'SOL' instead of lamports
-now=$(date +%s%N)      # date in influx format
-timezone="UTC"         # time zone for epoch ends metric
-#####  END CONFIG  ##################################################################################################
+config_dir="${SOLANA_CONFIG_DIR:-$HOME/.config/solana}"
+solana_cli="${SOLANA_CLI:-}"
+curl_bin="${CURL_BIN:-curl}"
+identity_pubkey="${SOLANA_IDENTITY_PUBKEY:-}"
+vote_account="${SOLANA_VOTE_ACCOUNT:-}"
+rpc_url="${SOLANA_RPC_URL:-}"
+rpc_timeout="${MONITOR_RPC_TIMEOUT:-20}"
+price_timeout="${MONITOR_PRICE_TIMEOUT:-3}"
+slot_milliseconds="${MONITOR_SLOT_MILLISECONDS:-}"
+performance_rpc_url="${SOLANA_PERFORMANCE_RPC_URL:-}"
+price_url="${SOLANA_PRICE_URL:-https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd}"
+now="$(date +%s%N)"
 
-if [ -n  "$binDir" ]; then
-   cli="${binDir}/solana"
-else
-   if [ -z $configDir ]; then echo "please configure the config directory"; exit 1; fi
-   installDir="$(cat ${configDir}/install/config.yml | grep 'active_release_dir\:' | awk '{print $2}')/bin"
-   if [ -n "$installDir" ]; then cli="${installDir}/solana"; else echo "please configure the cli manually or check the configDir setting"; exit 1; fi
-fi
+usage() {
+  cat <<'EOF'
+Usage: monitor.sh [options]
 
-if [ -z $rpcURL ]; then
-   rpcPort=$(ps aux | grep agave-validator | grep -Po "\-\-rpc\-port\s+\K[0-9]+")
-   if [ -z $rpcPort ]; then echo "nodemonitor,pubkey=$identityPubkey status=4 $now"; exit 1; fi
-   rpcURL="http://127.0.0.1:$rpcPort"
-fi
+Options:
+  --identity PUBKEY       Validator identity (otherwise discovered with solana address)
+  --vote-account PUBKEY   Vote account (otherwise discovered from getVoteAccounts)
+  --rpc-url URL           Validator RPC URL (otherwise discovered from the validator process)
+  --solana-cli PATH       Path to the solana CLI (identity and epoch-ETA fallback)
+  --rpc-timeout SECONDS   RPC request timeout (default: 20)
+  --price-timeout SECONDS Price request timeout (default: 3)
+  --performance-rpc-url URL
+                          RPC used when local performance samples are empty
+  --slot-ms MILLISECONDS  Fallback slot duration when RPC samples are unavailable
+  -h, --help              Show this help
 
-noVoting=$(ps aux | grep agave-validator | grep -c "\-\-no\-voting")
-if [ "$noVoting" -eq 0 ]; then
-   if [ -z $identityPubkey ]; then identityPubkey=$($cli address --url $rpcURL); fi
-   if [ -z $identityPubkey ]; then echo "auto-detection failed, please configure the identityPubkey in the script if not done"; exit 1; fi
-   if [ -z $voteAccount ]; then echo "please configure the vote account in the script or wait for availability upon starting the node"; exit 1; fi
-fi
+The same values can be provided with SOLANA_IDENTITY_PUBKEY,
+SOLANA_VOTE_ACCOUNT, SOLANA_RPC_URL, SOLANA_CLI, MONITOR_RPC_TIMEOUT,
+MONITOR_PRICE_TIMEOUT, SOLANA_PERFORMANCE_RPC_URL, and
+MONITOR_SLOT_MILLISECONDS.
+EOF
+}
 
-validatorBalance=$($cli balance $identityPubkey --url $rpcURL | grep -o '[0-9.]*')
-validatorVoteBalance=$($cli balance $voteAccount --url $rpcURL | grep -o '[0-9.]*')
-solanaPrice=$(curl -s 'GET' 'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd' -H 'accept: application/json' | jq -r .solana.usd)
-openfiles=$(cat /proc/sys/fs/file-nr | awk '{ print $1 }')
-validatorCheck=$(curl -s "$rpcURL" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"getVoteAccounts"}')
-
-if ! jq -e '.result' >/dev/null 2>&1 <<<"$validatorCheck"; then
-    echo "getVoteAccounts RPC failed"
-    echo "nodemonitor,pubkey=$identityPubkey status=2 $now"
-    exit 1
-fi
-
-validators=$(jq -c '
-  .result as $r |
-  {
-    validators:
-      (
-        ($r.current // [] | map(. + {delinquent:false})) +
-        ($r.delinquent // [] | map(. + {delinquent:true}))
-      | map({
-          identityPubkey: .nodePubkey,
-          voteAccountPubkey: .votePubkey,
-          rootSlot: (.rootSlot // 0),
-          lastVote: (.lastVote // 0),
-          credits: (.epochCredits[-1][1] // 0),
-          activatedStake: (.activatedStake // 0),
-          commission: (.commission // 0),
-          version: "unknown",
-          delinquent: .delinquent
-        })
-      ),
-    totalActiveStake:
-      ((($r.current // []) + ($r.delinquent // [])) | map(.activatedStake // 0) | add // 0),
-    totalCurrentStake:
-      (($r.current // []) | map(.activatedStake // 0) | add // 0),
-    totalDelinquentStake:
-      (($r.delinquent // []) | map(.activatedStake // 0) | add // 0),
-    stakeByVersion: {}
-  }' <<<"$validatorCheck")
-
-if [ $(jq -r --arg voteAccount "$voteAccount" \
-  '[.validators[] | select(.voteAccountPubkey == $voteAccount)] | length' \
-  <<<"$validators") == 0 ]; then
-    echo "validator not found in set"
-    exit 1
-fi
-
-blockProduction=$($cli block-production --url $rpcURL --output json-compact 2>&- | grep -v Note:)
-
-validatorBlockProduction=$(jq -r \
-  '.leaders[] | select(.identityPubkey == "'"$identityPubkey"'")' \
-  <<<$blockProduction)
-
-currentValidatorInfo=$(jq -r \
-  '.validators[] | select(.voteAccountPubkey == "'"$voteAccount"'" and .delinquent == false)' \
-  <<<$validators)
-
-delinquentValidatorInfo=$(jq -r \
-  '.validators[] | select(.voteAccountPubkey == "'"$voteAccount"'" and .delinquent == true)' \
-  <<<$validators)
-
-detectedVersion=$($cli gossip --url "$rpcURL" 2>/dev/null | \
-  awk -F'|' -v id="$identityPubkey" '
-    $2 ~ id {
-      gsub(/^[ \t]+|[ \t]+$/, "", $7)
-      print $7
-      exit
-    }')
-
-if [ -n "$detectedVersion" ]; then
-  if [ -n "$currentValidatorInfo" ]; then
-    currentValidatorInfo=$(jq --arg v "$detectedVersion" '.version=$v' <<<"$currentValidatorInfo")
+require_option_value() {
+  if (($# < 2)) || [[ -z "${2:-}" ]]; then
+    printf 'monitor: %s requires a value\n' "$1" >&2
+    exit 64
   fi
-  if [ -n "$delinquentValidatorInfo" ]; then
-    delinquentValidatorInfo=$(jq --arg v "$detectedVersion" '.version=$v' <<<"$delinquentValidatorInfo")
-  fi
+}
+
+while (($#)); do
+  case "$1" in
+    --identity)
+      require_option_value "$@"
+      identity_pubkey="${2:-}"
+      shift 2
+      ;;
+    --vote-account)
+      require_option_value "$@"
+      vote_account="${2:-}"
+      shift 2
+      ;;
+    --rpc-url)
+      require_option_value "$@"
+      rpc_url="${2:-}"
+      shift 2
+      ;;
+    --solana-cli)
+      require_option_value "$@"
+      solana_cli="${2:-}"
+      shift 2
+      ;;
+    --rpc-timeout)
+      require_option_value "$@"
+      rpc_timeout="${2:-}"
+      shift 2
+      ;;
+    --price-timeout)
+      require_option_value "$@"
+      price_timeout="${2:-}"
+      shift 2
+      ;;
+    --performance-rpc-url)
+      require_option_value "$@"
+      performance_rpc_url="${2:-}"
+      shift 2
+      ;;
+    --slot-ms)
+      require_option_value "$@"
+      slot_milliseconds="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'monitor: unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 64
+      ;;
+  esac
+done
+
+if [[ ! "$rpc_timeout" =~ ^[0-9]+([.][0-9]+)?$ || ! "$price_timeout" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  printf 'monitor: timeout values must be non-negative numbers\n' >&2
+  exit 64
 fi
-    if [[ ((-n "$currentValidatorInfo" || "$delinquentValidatorInfo" ))  ]] || [[ ("$validatorBlockTimeTest" -eq "1" ) ]]; then
-        status=1 #status 0=validating 1=up 2=error 3=delinquent 4=stopped
-        blockHeight=$(jq -r '.slot' <<<$validatorBlockTime)
-        blockHeightTime=$(jq -r '.timestamp' <<<$validatorBlockTime)
-        if [ -n "$blockHeightTime" ]; then blockHeightFromNow=$(expr $(date +%s) - $blockHeightTime); fi
-        if [ -n "$delinquentValidatorInfo" ]; then
-              status=3
-              activatedStake=$(jq -r '.activatedStake' <<<$delinquentValidatorInfo)
-        if [ "$format" == "SOL" ]; then activatedStake=$(echo "scale=2 ; $activatedStake / 1000000000.0" | bc); fi
-              credits=$(jq -r '.credits' <<<$delinquentValidatorInfo)
-              # Set version to 0 if unknown, null, or invalid
-              version=$(jq -r '.version // "unknown"' <<<$currentValidatorInfo | sed 's/ /-/g')
-              version2=$(echo "$version" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' | tr -d '.')
-              version2=${version2:-0}
-              commission=$(jq -r '.commission' <<<$delinquentValidatorInfo)
-              logentry="rootSlot=$(jq -r '.rootSlot' <<<$delinquentValidatorInfo),lastVote=$(jq -r '.lastVote' <<<$delinquentValidatorInfo),credits=$credits,activatedStake=$activatedStake,version=$version2,commission=$commission"
-        elif [ -n "$currentValidatorInfo" ]; then
-              status=0
-              activatedStake=$(jq -r '.activatedStake' <<<$currentValidatorInfo)
-              credits=$(jq -r '.credits' <<<$currentValidatorInfo)
-              # Set version to 0 if unknown, null, or invalid
-              version=$(jq -r '.version // "unknown"' <<<$currentValidatorInfo | sed 's/ /-/g')
-              version2=$(echo "$version" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' | tr -d '.')
-              version2=${version2:-0}
-              commission=$(jq -r '.commission' <<<$currentValidatorInfo)
-              logentry="rootSlot=$(jq -r '.rootSlot' <<<$currentValidatorInfo),lastVote=$(jq -r '.lastVote' <<<$currentValidatorInfo)"
-              leaderSlots=$(jq -r '.leaderSlots' <<<$validatorBlockProduction)
-              skippedSlots=$(jq -r '.skippedSlots' <<<$validatorBlockProduction)
-              totalBlocksProduced=$(jq -r '.total_slots' <<<$blockProduction)
-              totalSlotsSkipped=$(jq -r '.total_slots_skipped' <<<$blockProduction)
-              if [ "$format" == "SOL" ]; then activatedStake=$(echo "scale=2 ; $activatedStake / 1000000000.0" | bc); fi
-              if [ -n "$leaderSlots" ]; then pctSkipped=$(echo "scale=2 ; 100 * $skippedSlots / $leaderSlots" | bc); fi
-              if [ -z "$leaderSlots" ]; then leaderSlots=0 skippedSlots=0 pctSkipped=0; fi
-              if [ -n "$totalBlocksProduced" ]; then
-                 pctTotSkipped=$(echo "scale=2 ; 100 * $totalSlotsSkipped / $totalBlocksProduced" | bc)
-                 if [ "$pctSkipped" = 0 ] || [ "$pctTotSkipped" = 0 ]; then pctSkippedDelta=0
-                 else pctSkippedDelta=$(echo "scale=2 ; 100 * ($pctSkipped - $pctTotSkipped) / $pctTotSkipped" | bc); fi
-              fi
-              if [ -z "$pctTotSkipped" ]; then pctTotSkipped=0 pctSkippedDelta=0; fi
-              totalActiveStake=$(jq -r '.totalActiveStake' <<<$validators)
-              totalDelinquentStake=$(jq -r '.totalDelinquentStake' <<<$validators)
-              pctTotDelinquent=$(echo "scale=2 ; 100 * $totalDelinquentStake / $totalActiveStake" | bc)
-              versionActiveStake=0
-              totalCurrentStake=$(jq -r '.totalCurrentStake // 0' <<<$validators)
-              pctVersionActive=0
-              pctNewerVersions=0
-              logentry="$logentry,leaderSlots=$leaderSlots,skippedSlots=$skippedSlots,pctSkipped=$pctSkipped,pctTotSkipped=$pctTotSkipped,pctSkippedDelta=$pctSkippedDelta,pctTotDelinquent=$pctTotDelinquent"
-              logentry="$logentry,version=$version2,pctNewerVersions=$pctNewerVersions,commission=$commission,activatedStake=$activatedStake,credits=$credits,solanaPrice=$solanaPrice"
-           else status=2; fi
-        if [ "$additionalInfo" == "on" ]; then
-           nodes=$($cli gossip --url $rpcURL | grep -Po "Nodes:\s+\K[0-9]+")
-           epochInfo=$($cli epoch-info --url $rpcURL --output json-compact)
-           epoch=$(jq -r '.epoch' <<<$epochInfo)
-           tps=$(jq -r '.transactionCount' <<<$epochInfo)
-           pctEpochElapsed=$(echo "scale=2 ; 100 * $(jq -r '.slotIndex' <<<$epochInfo) / $(jq -r '.slotsInEpoch' <<<$epochInfo)" | bc)
-           validatorCreditsCurrent=$($cli vote-account $voteAccount --url $rpcURL | grep credits/max | cut -d ":" -f 2 | cut -d "/" -f 1 | awk 'NR==1{print $1}')
-           TIME=$($cli epoch-info | grep "Epoch Completed Time" | cut -d "(" -f 2 | awk '{print $1,$2,$3,$4}')
-           VAR1=$(echo $TIME | grep -oE '[0-9]+day' | grep -o -E '[0-9]+')
-           VAR2=$(echo $TIME | grep -oE '[0-9]+h'   | grep -o -E '[0-9]+')
-           VAR3=$(echo $TIME | grep -oE '[0-9]+m'   | grep -o -E '[0-9]+')
-           VAR4=$(echo $TIME | grep -oE '[0-9]+s'   | grep -o -E '[0-9]+')
-           if [ -z "$VAR1" ];
-           then
-           VAR1=0
-           fi
+if [[ -n "$slot_milliseconds" && ! "$slot_milliseconds" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'monitor: slot duration must be a positive integer in milliseconds\n' >&2
+  exit 64
+fi
 
-           if [ -z "$VAR2" ];
-           then
-           VAR2=0
-           fi
+for command_name in "$curl_bin" jq awk sed pgrep date; do
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    printf 'monitor: required command not found: %s\n' "$command_name" >&2
+    exit 69
+  fi
+done
 
-           if [ -z "$VAR3" ];
-           then
-           VAR3=0
-           fi
+emit_status() {
+  local status="$1"
+  printf 'nodemonitor,pubkey=%s status=%si %s\n' "${identity_pubkey:-unknown}" "$status" "$now"
+}
 
-           if [ -z "$VAR4" ];
-           then
-           VAR4=0
-           fi
-           epochEnds=$(TZ=$timezone date -d "$VAR1 days $VAR2 hours $VAR3 minutes $VAR4 seconds" +"%m/%d/%Y %H:%M")
-           epochEnds=$(( $(TZ=$timezone date -d "$epochEnds" +%s) * 1000 ))
-           voteElapsed=$(echo "scale=4; $pctEpochElapsed / 100 * 432000" | bc)
-           if [ "$voteElapsed" = 0 ]; then pctVote=0
-           else pctVote=$(echo "scale=4; $validatorCreditsCurrent/$voteElapsed * 100" | bc); fi
-           logentry="$logentry,openFiles=$openfiles,validatorBalance=$validatorBalance,validatorVoteBalance=$validatorVoteBalance,nodes=$nodes,epoch=$epoch,pctEpochElapsed=$pctEpochElapsed,validatorCreditsCurrent=$validatorCreditsCurrent,epochEnds=$epochEnds,pctVote=$pctVote,tps=$tps"
-        fi
-        logentry="nodemonitor,pubkey=$identityPubkey status=$status,$logentry $now"
-    else
-        status=2
-        logentry="nodemonitor,pubkey=$identityPubkey status=$status $now"
+discover_rpc_url() {
+  local process_line rpc_port
+  process_line="$(pgrep -a -f '(agave-validator|solana-validator|fdctl)' 2>/dev/null | sed -n '1p')"
+  rpc_port="$(sed -nE 's/.*--rpc-port(=|[[:space:]]+)([0-9]+).*/\2/p' <<<"$process_line")"
+  if [[ -n "$rpc_port" ]]; then
+    printf 'http://127.0.0.1:%s' "$rpc_port"
+  fi
+}
+
+discover_solana_cli() {
+  local install_config active_release
+  if [[ -n "$solana_cli" ]]; then
+    return
+  fi
+  if command -v solana >/dev/null 2>&1; then
+    solana_cli="$(command -v solana)"
+    return
+  fi
+  install_config="$config_dir/install/config.yml"
+  if [[ -r "$install_config" ]]; then
+    active_release="$(awk '$1 == "active_release_dir:" {print $2; exit}' "$install_config")"
+    if [[ -x "$active_release/bin/solana" ]]; then
+      solana_cli="$active_release/bin/solana"
     fi
- echo $logentry
+  fi
+}
+
+configured_cli_rpc_url() {
+  local config_output configured_url
+
+  discover_solana_cli
+  if [[ -z "$solana_cli" || ! -x "$solana_cli" ]]; then
+    return 1
+  fi
+
+  if command -v timeout >/dev/null 2>&1; then
+    config_output="$(timeout "$rpc_timeout" "$solana_cli" config get 2>/dev/null)" || return 1
+  else
+    config_output="$("$solana_cli" config get 2>/dev/null)" || return 1
+  fi
+  configured_url="$(awk -F': ' '/^RPC URL:/ {print substr($0, index($0, $2)); exit}' <<<"$config_output")"
+  if [[ ! "$configured_url" =~ ^https?:// ]]; then
+    return 1
+  fi
+  printf '%s' "$configured_url"
+}
+
+rpc_call() {
+  local payload="$1" endpoint="${2:-$rpc_url}"
+  "$curl_bin" --silent --show-error --fail \
+    --max-time "$rpc_timeout" \
+    --header 'Content-Type: application/json' \
+    --data "$payload" \
+    "$endpoint"
+}
+
+pct() {
+  awk -v numerator="$1" -v denominator="$2" \
+    'BEGIN { if (denominator == 0) print "0.00"; else printf "%.2f", 100 * numerator / denominator }'
+}
+
+sol_amount() {
+  awk -v lamports="$1" 'BEGIN { printf "%.9f", lamports / 1000000000 }'
+}
+
+load_performance_samples() {
+  local endpoint="$1" response summary remote_genesis fallback_slots fallback_seconds
+  local payload
+
+  payload='[
+    {"jsonrpc":"2.0","id":"performanceGenesis","method":"getGenesisHash"},
+    {"jsonrpc":"2.0","id":"performanceFallback","method":"getRecentPerformanceSamples","params":[5]}
+  ]'
+  response="$(rpc_call "$payload" "$endpoint" 2>/dev/null)" || return 1
+  summary="$(jq -er '
+    if type != "array" then error("invalid batch response") else
+      ([.[] | select(.id == "performanceGenesis")][0].result // "") as $genesis |
+      ([.[] | select(.id == "performanceFallback")][0].result // null) as $samples |
+      if ($samples | type) != "array" then error("invalid performance result") else
+        {
+          genesis: $genesis,
+          slots: ([$samples[].numSlots] | add // 0),
+          seconds: ([$samples[].samplePeriodSecs] | add // 0)
+        }
+      end
+    end
+  ' <<<"$response" 2>/dev/null)" || return 1
+
+  remote_genesis="$(jq -r '.genesis' <<<"$summary")"
+  fallback_slots="$(jq -r '.slots' <<<"$summary")"
+  fallback_seconds="$(jq -r '.seconds' <<<"$summary")"
+  if [[ -z "$genesis_hash" || "$remote_genesis" != "$genesis_hash" ]] || \
+     ((fallback_slots <= 0 || fallback_seconds <= 0)); then
+    return 1
+  fi
+
+  sample_slots="$fallback_slots"
+  sample_seconds="$fallback_seconds"
+}
+
+epoch_end_from_cli() {
+  local epoch_info remaining total_seconds current_seconds
+
+  discover_solana_cli
+  if [[ -z "$solana_cli" || ! -x "$solana_cli" ]]; then
+    return 1
+  fi
+
+  # The CLI derives an estimated duration from cluster progress and prints it
+  # in parentheses, for example: "(19h 27m 3s remaining)". This is more
+  # representative than a nominal slot duration when the RPC node exposes no
+  # recent performance samples.
+  if command -v timeout >/dev/null 2>&1; then
+    epoch_info="$(timeout "$rpc_timeout" "$solana_cli" epoch-info --url "$rpc_url" 2>/dev/null)" || return 1
+  else
+    epoch_info="$("$solana_cli" epoch-info --url "$rpc_url" 2>/dev/null)" || return 1
+  fi
+
+  remaining="$(awk -F'[()]' '/Epoch Completed Time:/ {print $2; exit}' <<<"$epoch_info")"
+  total_seconds="$(awk '
+    {
+      total = 0
+      found = 0
+      for (i = 1; i <= NF; i++) {
+        value = $i
+        if (value ~ /^[0-9]+days?$/) {
+          sub(/days?$/, "", value); total += value * 86400; found = 1
+        } else if (value ~ /^[0-9]+h$/) {
+          sub(/h$/, "", value); total += value * 3600; found = 1
+        } else if (value ~ /^[0-9]+m$/) {
+          sub(/m$/, "", value); total += value * 60; found = 1
+        } else if (value ~ /^[0-9]+s$/) {
+          sub(/s$/, "", value); total += value; found = 1
+        }
+      }
+      if (found) print total
+    }
+  ' <<<"$remaining")"
+  if [[ ! "$total_seconds" =~ ^[0-9]+$ || "$total_seconds" -le 0 ]]; then
+    return 1
+  fi
+
+  current_seconds="$(date +%s)"
+  printf '%s' "$(( (current_seconds + total_seconds) * 1000 ))"
+}
+
+if [[ -z "$rpc_url" ]]; then
+  rpc_url="$(discover_rpc_url)"
+fi
+if [[ -z "$rpc_url" ]]; then
+  printf 'monitor: unable to discover validator RPC URL; set SOLANA_RPC_URL or --rpc-url\n' >&2
+  emit_status 4
+  exit 1
+fi
+
+if [[ -z "$identity_pubkey" ]]; then
+  discover_solana_cli
+  if [[ -z "$solana_cli" || ! -x "$solana_cli" ]]; then
+    printf 'monitor: identity is unset and the solana CLI could not be found\n' >&2
+    emit_status 4
+    exit 1
+  fi
+  identity_pubkey="$($solana_cli address --url "$rpc_url" 2>/dev/null || true)"
+fi
+if [[ -z "$identity_pubkey" ]]; then
+  printf 'monitor: unable to discover validator identity\n' >&2
+  emit_status 4
+  exit 1
+fi
+
+# Do not request unstaked delinquent vote accounts here. They add no stake to
+# cluster delinquency calculations and can expand this response by megabytes.
+vote_payload='{"jsonrpc":"2.0","id":"voteAccounts","method":"getVoteAccounts","params":[{"commitment":"confirmed"}]}'
+if ! vote_response="$(rpc_call "$vote_payload" 2>/dev/null)" || ! jq -e '.result.current and .result.delinquent' >/dev/null 2>&1 <<<"$vote_response"; then
+  printf 'monitor: getVoteAccounts RPC request failed\n' >&2
+  emit_status 2
+  exit 1
+fi
+
+if [[ -z "$vote_account" ]]; then
+  mapfile -t matching_vote_accounts < <(
+    jq -r --arg identity "$identity_pubkey" \
+      '[.result.current[], .result.delinquent[]] | .[] | select(.nodePubkey == $identity) | .votePubkey' \
+      <<<"$vote_response"
+  )
+  if ((${#matching_vote_accounts[@]} != 1)); then
+    printf 'monitor: found %s vote accounts for identity %s; set SOLANA_VOTE_ACCOUNT or --vote-account\n' \
+      "${#matching_vote_accounts[@]}" "$identity_pubkey" >&2
+    emit_status 2
+    exit 1
+  fi
+  vote_account="${matching_vote_accounts[0]}"
+fi
+
+if ! vote_summary="$(jq -er --arg vote "$vote_account" '
+  ([.result.current[] | select(.votePubkey == $vote) | . + {monitorStatus: 0}] +
+   [.result.delinquent[] | select(.votePubkey == $vote) | . + {monitorStatus: 3}]) as $selected |
+  if ($selected | length) != 1 then error("vote account not found or ambiguous") else
+    $selected[0] as $v |
+    {
+      status: $v.monitorStatus,
+      rootSlot: ($v.rootSlot // 0),
+      lastVote: ($v.lastVote // 0),
+      credits: ($v.epochCredits[-1][1] // 0),
+      previousCredits: ($v.epochCredits[-1][2] // 0),
+      activatedStake: ($v.activatedStake // 0),
+      commission: ($v.commission // 0),
+      totalStake: (([.result.current[].activatedStake, .result.delinquent[].activatedStake] | add) // 0),
+      delinquentStake: (([.result.delinquent[].activatedStake] | add) // 0)
+    }
+  end
+' <<<"$vote_response" 2>/dev/null)"; then
+  printf 'monitor: vote account %s was not found uniquely in getVoteAccounts\n' "$vote_account" >&2
+  emit_status 2
+  exit 1
+fi
+
+batch_payload="$(jq -cn --arg identity "$identity_pubkey" --arg vote "$vote_account" '[
+  {jsonrpc:"2.0",id:"blockProduction",method:"getBlockProduction",params:[{commitment:"confirmed"}]},
+  {jsonrpc:"2.0",id:"clusterNodes",method:"getClusterNodes"},
+  {jsonrpc:"2.0",id:"epochInfo",method:"getEpochInfo",params:[{commitment:"confirmed"}]},
+  {jsonrpc:"2.0",id:"performance",method:"getRecentPerformanceSamples",params:[5]},
+  {jsonrpc:"2.0",id:"identityBalance",method:"getBalance",params:[$identity,{commitment:"confirmed"}]},
+  {jsonrpc:"2.0",id:"voteBalance",method:"getBalance",params:[$vote,{commitment:"confirmed"}]},
+  {jsonrpc:"2.0",id:"genesisHash",method:"getGenesisHash"}
+]')"
+
+batch_response='[]'
+if ! batch_candidate="$(rpc_call "$batch_payload" 2>/dev/null)" || ! jq -e 'type == "array"' >/dev/null 2>&1 <<<"$batch_candidate"; then
+  printf 'monitor: supplemental JSON-RPC batch failed; emitting validator status with zeroed supplemental fields\n' >&2
+else
+  batch_response="$batch_candidate"
+fi
+
+batch_summary="$(jq -c --arg identity "$identity_pubkey" '
+  def response($id): ([.[] | select(.id == $id)][0] // {});
+  (response("blockProduction").result.value // {}) as $bp |
+  (response("clusterNodes").result // []) as $nodes |
+  (response("epochInfo").result // {}) as $epoch |
+  (response("performance").result // []) as $performance |
+  ($bp.byIdentity[$identity] // [0, 0]) as $validatorProduction |
+  ([($bp.byIdentity // {})[] | .[0]] | add // 0) as $clusterLeaderSlots |
+  ([($bp.byIdentity // {})[] | .[1]] | add // 0) as $clusterProducedBlocks |
+  {
+    leaderSlots: ($validatorProduction[0] // 0),
+    producedBlocks: ($validatorProduction[1] // 0),
+    clusterLeaderSlots: $clusterLeaderSlots,
+    clusterProducedBlocks: $clusterProducedBlocks,
+    nodes: ($nodes | length),
+    version: (($nodes[] | select(.pubkey == $identity) | .version) // ""),
+    epoch: ($epoch.epoch // 0),
+    slotIndex: ($epoch.slotIndex // 0),
+    slotsInEpoch: ($epoch.slotsInEpoch // 0),
+    transactionCount: ($epoch.transactionCount // 0),
+    sampleSlots: ([$performance[].numSlots] | add // 0),
+    sampleSeconds: ([$performance[].samplePeriodSecs] | add // 0),
+    identityBalance: (response("identityBalance").result.value // 0),
+    voteBalance: (response("voteBalance").result.value // 0),
+    genesisHash: (response("genesisHash").result // "")
+  }
+' <<<"$batch_response")"
+
+status="$(jq -r '.status' <<<"$vote_summary")"
+root_slot="$(jq -r '.rootSlot' <<<"$vote_summary")"
+last_vote="$(jq -r '.lastVote' <<<"$vote_summary")"
+credits="$(jq -r '.credits' <<<"$vote_summary")"
+previous_credits="$(jq -r '.previousCredits' <<<"$vote_summary")"
+activated_stake_lamports="$(jq -r '.activatedStake' <<<"$vote_summary")"
+commission="$(jq -r '.commission' <<<"$vote_summary")"
+total_stake="$(jq -r '.totalStake' <<<"$vote_summary")"
+delinquent_stake="$(jq -r '.delinquentStake' <<<"$vote_summary")"
+
+leader_slots="$(jq -r '.leaderSlots' <<<"$batch_summary")"
+produced_blocks="$(jq -r '.producedBlocks' <<<"$batch_summary")"
+skipped_slots=$((leader_slots - produced_blocks))
+if ((skipped_slots < 0)); then skipped_slots=0; fi
+cluster_leader_slots="$(jq -r '.clusterLeaderSlots' <<<"$batch_summary")"
+cluster_produced_blocks="$(jq -r '.clusterProducedBlocks' <<<"$batch_summary")"
+cluster_skipped_slots=$((cluster_leader_slots - cluster_produced_blocks))
+if ((cluster_skipped_slots < 0)); then cluster_skipped_slots=0; fi
+
+pct_skipped="$(pct "$skipped_slots" "$leader_slots")"
+pct_total_skipped="$(pct "$cluster_skipped_slots" "$cluster_leader_slots")"
+pct_skipped_delta="$(awk -v own="$pct_skipped" -v cluster="$pct_total_skipped" \
+  'BEGIN { if (cluster == 0) print "0.00"; else printf "%.2f", 100 * (own - cluster) / cluster }')"
+pct_total_delinquent="$(pct "$delinquent_stake" "$total_stake")"
+
+version="$(jq -r '.version' <<<"$batch_summary")"
+version_number="$(awk -F. '/^[0-9]+\.[0-9]+\.[0-9]+/ {printf "%d%d%d", $1, $2, $3}' <<<"$version")"
+version_number="${version_number:-0}"
+nodes="$(jq -r '.nodes' <<<"$batch_summary")"
+epoch="$(jq -r '.epoch' <<<"$batch_summary")"
+slot_index="$(jq -r '.slotIndex' <<<"$batch_summary")"
+slots_in_epoch="$(jq -r '.slotsInEpoch' <<<"$batch_summary")"
+transaction_count="$(jq -r '.transactionCount' <<<"$batch_summary")"
+sample_slots="$(jq -r '.sampleSlots' <<<"$batch_summary")"
+sample_seconds="$(jq -r '.sampleSeconds' <<<"$batch_summary")"
+identity_balance_lamports="$(jq -r '.identityBalance' <<<"$batch_summary")"
+vote_balance_lamports="$(jq -r '.voteBalance' <<<"$batch_summary")"
+genesis_hash="$(jq -r '.genesisHash' <<<"$batch_summary")"
+
+# Some validator builds expose getRecentPerformanceSamples but don't populate
+# their local PerfSamples column. Prefer the Solana user's configured CLI RPC
+# for this small request, and verify it belongs to the same cluster. An
+# explicit URL takes precedence; the official cluster RPC is the last network
+# fallback when no explicit URL is supplied.
+if ((sample_slots <= 0 || sample_seconds <= 0)); then
+  if [[ -n "$performance_rpc_url" ]]; then
+    load_performance_samples "$performance_rpc_url" || true
+  else
+    configured_performance_rpc="$(configured_cli_rpc_url || true)"
+    if [[ -n "$configured_performance_rpc" ]]; then
+      load_performance_samples "$configured_performance_rpc" || true
+    fi
+
+    official_performance_rpc=""
+    case "$genesis_hash" in
+      5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp)
+        official_performance_rpc='https://api.mainnet-beta.solana.com'
+        ;;
+      4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY)
+        official_performance_rpc='https://api.testnet.solana.com'
+        ;;
+      EtWTRABZaYq6iMfeYKouRu166VU2xqa1)
+        official_performance_rpc='https://api.devnet.solana.com'
+        ;;
+    esac
+    if ((sample_slots <= 0 || sample_seconds <= 0)) && \
+       [[ -n "$official_performance_rpc" && \
+          "${official_performance_rpc%/}" != "${configured_performance_rpc%/}" ]]; then
+      load_performance_samples "$official_performance_rpc" || true
+    fi
+  fi
+fi
+
+current_credits=$((credits - previous_credits))
+if ((current_credits < 0)); then current_credits=0; fi
+pct_epoch_elapsed="$(pct "$slot_index" "$slots_in_epoch")"
+# Kept compatible with the current dashboard, which divides pctVote by 16.
+pct_vote="$(pct "$current_credits" "$slot_index")"
+
+epoch_ends=0
+if ((slots_in_epoch > slot_index)); then
+  remaining_slots=$((slots_in_epoch - slot_index))
+  if ((sample_slots > 0 && sample_seconds > 0)); then
+    epoch_ends="$(awk -v now_seconds="$(date +%s)" -v remaining="$remaining_slots" \
+      -v seconds="$sample_seconds" -v slots="$sample_slots" \
+      'BEGIN { printf "%.0f", 1000 * (now_seconds + remaining * seconds / slots) }')"
+  else
+    if [[ -z "$slot_milliseconds" ]]; then
+      case "$genesis_hash" in
+        4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY)
+          # The 4.3 testnet currently targets 200 ms, while `solana
+          # epoch-info` falls back to 400 ms when PerfSamples is empty.
+          slot_milliseconds=200
+          ;;
+        *)
+          if epoch_ends="$(epoch_end_from_cli)"; then
+            slot_milliseconds=""
+          else
+            slot_milliseconds=400
+          fi
+          ;;
+      esac
+    fi
+    if [[ -n "$slot_milliseconds" ]]; then
+      # Final fallback for installations without usable samples or a CLI.
+      epoch_ends="$(awk -v now_seconds="$(date +%s)" -v remaining="$remaining_slots" \
+        -v slot_ms="$slot_milliseconds" \
+        'BEGIN { printf "%.0f", 1000 * now_seconds + remaining * slot_ms }')"
+    fi
+  fi
+fi
+
+solana_price=""
+for _price_attempt in 1 2; do
+  price_candidate="$($curl_bin --silent --show-error --fail --max-time "$price_timeout" \
+    --header 'accept: application/json' "$price_url" 2>/dev/null | jq -r '.solana.usd // empty' 2>/dev/null || true)"
+  if [[ "$price_candidate" =~ ^[0-9]+([.][0-9]+)?$ ]] && \
+     awk -v price="$price_candidate" 'BEGIN { exit !(price > 0) }'; then
+    solana_price="$price_candidate"
+    break
+  fi
+done
+price_field=""
+if [[ -n "$solana_price" ]]; then
+  price_field=",solanaPrice=$solana_price"
+fi
+open_files="$(awk '{print $1}' /proc/sys/fs/file-nr 2>/dev/null || printf '0')"
+open_files="${open_files:-0}"
+
+activated_stake="$(sol_amount "$activated_stake_lamports")"
+identity_balance="$(sol_amount "$identity_balance_lamports")"
+vote_balance="$(sol_amount "$vote_balance_lamports")"
+
+printf 'nodemonitor,pubkey=%s status=%si,rootSlot=%si,lastVote=%si,credits=%si,activatedStake=%s,version=%si,commission=%si,leaderSlots=%si,skippedSlots=%si,pctSkipped=%s,pctTotSkipped=%s,pctSkippedDelta=%s,pctTotDelinquent=%s,pctNewerVersions=0%s,openFiles=%si,validatorBalance=%s,validatorVoteBalance=%s,nodes=%si,epoch=%si,pctEpochElapsed=%s,validatorCreditsCurrent=%si,epochEnds=%si,pctVote=%s,tps=%si %s\n' \
+  "$identity_pubkey" "$status" "$root_slot" "$last_vote" "$credits" "$activated_stake" "$version_number" "$commission" \
+  "$leader_slots" "$skipped_slots" "$pct_skipped" "$pct_total_skipped" "$pct_skipped_delta" "$pct_total_delinquent" \
+  "$price_field" "$open_files" "$identity_balance" "$vote_balance" "$nodes" "$epoch" "$pct_epoch_elapsed" \
+  "$current_credits" "$epoch_ends" "$pct_vote" "$transaction_count" "$now"

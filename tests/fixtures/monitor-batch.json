@@ -1,0 +1,71 @@
+[
+  {
+    "jsonrpc": "2.0",
+    "result": {
+      "context": {"slot": 437726200},
+      "value": {
+        "byIdentity": {
+          "8SQEcP4FaYQySktNQeyxF3w8pvArx3oMEh7fPrzkN9pu": [84, 76],
+          "CurrentValidator11111111111111111111111111111": [916, 913]
+        },
+        "range": {"firstSlot": 437700000, "lastSlot": 437726200}
+      }
+    },
+    "id": "blockProduction"
+  },
+  {
+    "jsonrpc": "2.0",
+    "result": [
+      {
+        "pubkey": "8SQEcP4FaYQySktNQeyxF3w8pvArx3oMEh7fPrzkN9pu",
+        "gossip": "127.0.0.1:8001",
+        "tpu": "127.0.0.1:8003",
+        "rpc": "127.0.0.1:8899",
+        "version": "4.3.0"
+      },
+      {
+        "pubkey": "CurrentValidator11111111111111111111111111111",
+        "gossip": "127.0.0.2:8001",
+        "tpu": "127.0.0.2:8003",
+        "rpc": null,
+        "version": "4.2.1"
+      }
+    ],
+    "id": "clusterNodes"
+  },
+  {
+    "jsonrpc": "2.0",
+    "result": {
+      "absoluteSlot": 437726200,
+      "blockHeight": 418000000,
+      "epoch": 1026,
+      "slotIndex": 18000,
+      "slotsInEpoch": 432000,
+      "transactionCount": 698637083708
+    },
+    "id": "epochInfo"
+  },
+  {
+    "jsonrpc": "2.0",
+    "result": [
+      {"numSlots": 64, "numTransactions": 50000, "samplePeriodSecs": 26},
+      {"numSlots": 64, "numTransactions": 51000, "samplePeriodSecs": 26}
+    ],
+    "id": "performance"
+  },
+  {
+    "jsonrpc": "2.0",
+    "result": {"context": {"slot": 437726200}, "value": 3424665720544},
+    "id": "identityBalance"
+  },
+  {
+    "jsonrpc": "2.0",
+    "result": {"context": {"slot": 437726200}, "value": 38708561305920},
+    "id": "voteBalance"
+  },
+  {
+    "jsonrpc": "2.0",
+    "result": "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY",
+    "id": "genesisHash"
+  }
+]

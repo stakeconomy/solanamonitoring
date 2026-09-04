@@ -1,10 +1,6 @@
-# Interpreting monitoring metrics
+# Interpreting community-dashboard metrics
 
-*This post is Part 3 of a 3-part series about setting up proper monitoring on your Solana Validator.*
-
-* [Part 1.](https://github.com/stakeconomy/solanamonitoring/blob/main/README.md) Solana Validator Monitoring Tool
-* [Part 2.](https://github.com/stakeconomy/solanamonitoring/blob/main/How%20to%20Install%20TIG%20Stack.md) How to Install Telegraf, InfluxDB, and Grafana
-* [Part 3.](https://github.com/stakeconomy/solanamonitoring/blob/main/Guidelines%20interpreting%20metrics.md) Interpreting monitoring metrics
+This guide explains the validator and host metrics shown on the public [Stakeconomy community dashboard](https://metrics.stakeconomy.com/). See the [project README](README.md) to join the dashboard or migrate an existing validator.
 
 ## Interpreting monitoring metrics
 
@@ -23,14 +19,12 @@ Telegraf can collect metrics from a wide array of inputs and write them to a wid
 - Server Load Average
 - Server memory utilization - Used, cached, free
 - CPU utilization
-- Number of CPU cores and each cpu utilization
-- Processes - stopped, sleeping, running e.t.c
-- Disk Utilization - Free and used space for / and all othe system partitions
-- Disk Inodes - / and all othe partitions in the system
+- Normalized load and total CPU utilization
+- Total, running, blocked, and zombie processes
+- Disk utilization for relevant validator mount points
 - Open Files
-- Swap - usage and IO
-- Disk IO - requests, bytes and time per disk
-- Disk Usage, ramdisk usage if used.
+- Swap usage
+- Receive/transmit traffic, packet errors, drops, and UDP errors
 
 #### Solana Validator Application performance metrics:
 - Validator Status. Is your validator health ok and validating
@@ -38,9 +32,10 @@ Telegraf can collect metrics from a wide array of inputs and write them to a wid
 - Active Stake
 - Leaderslots, missed slots and last voted slot
 - Skiprate and Cluster skiprate measured from your local validator RPC.
-- Solana version
+- Solana version and version-change timeline
 - Validator fee
 - Balance of your identity and vote accounts
+- Vote-credit efficiency and cluster delinquent stake
 
 ### Things you should be looking for in your grafana dashboard:
 To have a good performing server and validator, all the different metrics in the dashboard should be in it's best state. When one of the components in the table below if in a red state. the rest of the server would suffer from it and will probably result in high skiprate or a very short NVMe disk life. depending on what's going on.
@@ -50,18 +45,16 @@ I have put most metrics in a detailed table, the normal and alarm table states w
 
 | metric  | normal | alarm | details|
 |---------|--------|-------|--------|
-|Load (LA)| 1-15 | >15 | Server load is important. When server load is extremely high it's a good indicator something is wrong. I have seen scenario's with too little CPU cores, or too slow NVMe disks causing very high server load |
-|Memory usage| 1-25%  | >25%  | Memory usage is split between total, cache, used and free. The Solana validator takes around 10-20GB, the rest is cache in the OS.|
-|IOWait |0-3%|>3%|IOWait is pretty important measurement. Solana validators need fast NVMe disks and having much IOWait time basically means your disk is too slow to catch up.|
-|Disk Usage| 0-70% | >70% | Make sure you have enough free disk space available, a mainnet ledger directory can use from 150GB to more than a TB depending on the options used in validator startup file.|
-|Swap Usage| 0% | >1% | You basically want your server not to use swap. Sometimes this cannot be prevented but having a server use the swapspace means it's out of memory|
-|Ramdisk Usage| 0-20%| >20% | When you use a ramdisk you want to make sure it can expand to at least:  memorysize - 20GB + swapfile. for example: when your server has 128GB memory - 20GB for the validator processes + 128GB Swapfile = Your ramdisk needs to be 236GB.
-|Status| Validatating | Delinquent | Metric shows if your validator is online, delinquent or in error.|
+|Load / CPU| <70% | sustained >100% | The dashboard normalizes five-minute load by logical CPU count. Above 100% means more runnable or uninterruptible tasks than logical CPUs. Correlate it with CPU, IOWait, and blocked processes.|
+|Memory usage| stable with headroom | sustained pressure plus swap growth | Linux intentionally uses free RAM as page cache. Judge memory together with swap and application behavior instead of treating cache as wasted memory.|
+|IOWait | host baseline, usually low | sustained increase from baseline | IOWait means CPUs were idle while at least one I/O operation was outstanding; it is not disk utilization. Correlate it with skip-rate changes, blocked processes, and storage telemetry.|
+|Disk usage| <70% | >85% | Keep capacity for ledger growth, snapshots, and database compaction. The dashboard excludes package, runtime, container, and `/var/lib` mounts from validator capacity panels.|
+|Swap usage| zero or stable | growing during validator load | Non-zero allocated swap is less important than active swap pressure. Sustained growth with latency or skips indicates memory pressure.|
+|Status| Validating | Delinquent or monitor/RPC error | The health timeline distinguishes validator delinquency from collector or RPC failures.|
 |Active Stake| your stake | 0 | This metric should show your active stake.|
 |Last slot voted| | | Metric should show the last slot your validator has voted on. This value should progress every 15-30 seconds.|
-|Skiprate|0-25%|>25%|Skiprate is pretty important measurement of how your server is performing. Having more than 25% skiprate normally implies something is wrong. Most of the time it's diskspeed, lack of processor cores, high latency or throughput.|
+|Skip-rate gap| close to 0 percentage points | persistently above the cluster | Compare validator skip rate with the cluster rate. A relative regression is more actionable than one universal absolute threshold because network conditions and epoch stage vary. Correlate changes with the version timeline, IOWait, load, and traffic.|
+|Vote-credit efficiency| close to 100% | sustained decline | Shows earned timely vote credits relative to the theoretical maximum. Confirm a decline against validator status and network errors.|
 
 
 ![Metrics-Explained](https://i.imgur.com/oTD0Uc4.png)
-
-

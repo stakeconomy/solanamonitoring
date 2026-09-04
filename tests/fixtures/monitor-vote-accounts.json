@@ -1,0 +1,43 @@
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "current": [
+      {
+        "activatedStake": 1756474290046330,
+        "commission": 10,
+        "epochCredits": [
+          [1025, 2335941298, 2335900000],
+          [1026, 2336223624, 2335941298]
+        ],
+        "epochVoteAccount": true,
+        "lastVote": 437726159,
+        "nodePubkey": "8SQEcP4FaYQySktNQeyxF3w8pvArx3oMEh7fPrzkN9pu",
+        "rootSlot": 437726128,
+        "votePubkey": "2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3"
+      },
+      {
+        "activatedStake": 5000000000000000,
+        "commission": 5,
+        "epochCredits": [[1026, 1000, 900]],
+        "epochVoteAccount": true,
+        "lastVote": 437726160,
+        "nodePubkey": "CurrentValidator11111111111111111111111111111",
+        "rootSlot": 437726129,
+        "votePubkey": "CurrentVote111111111111111111111111111111111"
+      }
+    ],
+    "delinquent": [
+      {
+        "activatedStake": 40000000000000,
+        "commission": 8,
+        "epochCredits": [[1026, 800, 790]],
+        "epochVoteAccount": true,
+        "lastVote": 437000000,
+        "nodePubkey": "DelinquentValidator1111111111111111111111111",
+        "rootSlot": 437000000,
+        "votePubkey": "DelinquentVote111111111111111111111111111111"
+      }
+    ]
+  },
+  "id": "voteAccounts"
+}
