@@ -1,139 +1,124 @@
-# Solana Validator Monitoring Tool
+# Stakeconomy Solana Community Monitoring
 
-*This post is Part 1 of a 3-part series about setting up proper monitoring on your Solana Validator.*
+Lightweight monitoring for Solana validators that publish host and validator metrics to the public [Stakeconomy community dashboard](https://metrics.stakeconomy.com/).
 
-* [Part 1.](https://github.com/stakeconomy/solanamonitoring/blob/main/README.md) Solana Validator Monitoring Tool
-* [Part 2.](https://github.com/stakeconomy/solanamonitoring/blob/main/How%20to%20Install%20TIG%20Stack.md) How to Install Telegraf, InfluxDB, and Grafana
-* [Part 3.](https://github.com/stakeconomy/solanamonitoring/blob/main/Guidelines%20interpreting%20metrics.md) Interpreting monitoring metrics
+This repository intentionally focuses on three things:
 
-## Introduction
+- `monitor.sh`: one-minute Solana validator metrics in Influx line protocol;
+- `telegraf/solana-monitoring.conf.example`: a low-cardinality, least-privilege Telegraf configuration;
+- `grafana/solana-community-validator-dashboard.json`: the dashboard source used by the community service.
 
-### Telegraf | A Metrics Collector For InfluxDB
+It is not a guide for installing a private Telegraf, time-series database, and Grafana stack.
 
-Telegraf can collect metrics from a wide array of inputs and write them to a wide array of outputs. It is plugin-driven for both collection and output of data so it is easily extendable. It is written in Go, which means that it is compiled and standalone binary that can be executed on any system with no need for external dependencies, or package management tools required.
+## What is monitored
 
-Telegraf is an open-source tool. It contains over 200 plugins for gathering and writing different types of data written by people who work with that data.
+Validator metrics include status, root and vote slots, vote credits, active stake, leader slots, skipped slots, validator and cluster skip rates, commission, software version, epoch progress and ETA, cluster TPS, SOL price, identity/vote balances, cluster size, and delinquent stake.
 
-### Telegraf benefits
-- Easy to setup
-- Minimal memory footprint
-- Over 200 plugins available
-- Able to send metrics to central InfluxDB over http(s) without the need of client configuration
+Host metrics include total CPU, IOWait, normalized load, memory, swap, relevant filesystem utilization, network traffic/errors, UDP errors, process states, TCP states, allocated file handles, and context switches.
 
-### Architecture
+The dashboard supports independent validator and host selection, dynamic mount/interface selectors, software-version and health timelines, mirrored receive/transmit traffic, and filters for virtual resources.
 
-![Architecture](https://i.imgur.com/xmbND94.png)
+## Requirements
 
-### Solana Monitoring
-The solution consist of a standard telegraf installation and one bash script "monitor.sh" that will get all server performance and validator performance metrics every 30 seconds and send all the metrics to a local or remote influx database server.
+- a running Solana or Agave validator with a local RPC endpoint;
+- Telegraf;
+- Bash, `curl`, `jq`, `awk`, `sed`, `pgrep`, and `date`;
+- the Solana CLI when identity discovery or the epoch-ETA fallback is needed.
 
-![Sample Dashboard](https://i.imgur.com/2CB2F1o.png)
+`bc` is no longer required.
 
-# Features
-* Simple setup with minimal performance impact to monitor validator node.
-* Sample Dashboard to import into Grafana.
-* Use of community dashboard on https://metrics.stakeconomy.com possible so you don't need to setup your own monitoring system.
-* Customizable Parameters. You can use your own RPC node or Solana public RPC nodes (much slower).
+## Quick test
 
-TBD
-------
-* Optimize the way how we get skip-rate. 
-* Rebuild solana monitoring script as telegraf input plugin written in Go.
+Run the collector as the validator user before configuring Telegraf:
 
-# Installation & Setup
+```bash
+cd /home/solana/solanamonitoring
 
-A fully functional Solana Validator is required to setup monitoring. In the example below we use Ubuntu 20.04.
-To get all metrics from your local Validator RPC.
-
-In the examples below we setup the validator with user "sol" with it's home in /home/sol. It is required that the script is installed and run under that same user.
-You need to install the telegraf agent on your validator nodes. 
-
-To have full statistics that include a whole epoch, make sure that your --limit-ledger-size configuration is big enough to store a whole epoch:
-
-```       --limit-ledger-size <SHRED_COUNT>                       Keep this amount of shreds in root slots.```
-
-You may use 250000000 for ~1 epoch or leavy it empty to use the default. 
-Using less schred's to save diskspace still works, but it will mess up your leaderslots and skiprate stats.
-
-```
-# install telegraf
-cat <<EOF | sudo tee /etc/apt/sources.list.d/influxdata.list
-deb https://repos.influxdata.com/ubuntu bionic stable
-EOF
-
-sudo curl -sL https://repos.influxdata.com/influxdb.key | sudo apt-key add -
-
-sudo apt-get update
-sudo apt-get -y install telegraf jq bc
-
-sudo systemctl enable --now telegraf
-sudo systemctl is-enabled telegraf
-systemctl status telegraf
-
-# make the telegraf user sudo and adm to be able to execute scripts as sol user
-sudo adduser telegraf sudo
-sudo adduser telegraf adm
-sudo -- bash -c 'echo "telegraf ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers'
-
-sudo cp /etc/telegraf/telegraf.conf /etc/telegraf/telegraf.conf.orig
-sudo rm -rf /etc/telegraf/telegraf.conf
-
-# make sure you are the user you run solana with . eq. su - solana
-git clone https://github.com/stakeconomy/solanamonitoring/
-cd solanamonitoring
-
-
-```
-You might need to add your local RPC endpoint like "https://localhost:8899" and/or a timezone like "Europe / Amsterdam" to the monitor.sh script if you run into issues
-
-
-# Example telegraf configuration
-Add the configuration file /etc/telegraf/telegraf.conf based on the example below:
-
-Change your hostname, mountpoints to monitor, location of the monitor script and the username
-
-```
-# Global Agent Configuration
-[agent]
-  hostname = "mynode-mainnet" # set this to a name you want to identify your node in the grafana dashboard
-  flush_interval = "15s"
-  interval = "15s"
-
-# Input Plugins
-[[inputs.cpu]]
-    percpu = true
-    totalcpu = true
-    collect_cpu_time = false
-    report_active = false
-[[inputs.disk]]
-    ignore_fs = ["devtmpfs", "devfs"]
-[[inputs.diskio]]
-[[inputs.mem]]
-[[inputs.net]]
-[[inputs.system]]
-[[inputs.swap]]
-[[inputs.netstat]]
-[[inputs.processes]]
-[[inputs.kernel]]
-[[inputs.diskio]]
-
-# Output Plugin InfluxDB
-[[outputs.influxdb]]
-  database = "metricsdb"
-  urls = [ "http://metrics.stakeconomy.com:8086" ] # keep this to send all your metrics to the community dashboard otherwise use http://yourownmonitoringnode:8086
-  username = "metrics" # keep both values if you use the community dashboard
-  password = "password"
-
-[[inputs.exec]]
-  commands = ["sudo su -c /home/solana/solanamonitoring/monitor.sh -s /bin/bash solana"] # change home and username to the useraccount your validator runs at
-  interval = "5m"
-  timeout = "1m"
-  data_format = "influx"
-  data_type = "integer"
+./monitor.sh \
+  --rpc-url http://127.0.0.1:8899 \
+  --rpc-timeout 20 \
+  --price-timeout 3
 ```
 
+It must emit exactly one line beginning with `nodemonitor,pubkey=` on standard output. Integer fields have the required Influx `i` suffix; balances and percentages remain floating point. Diagnostics are written to standard error.
 
-Please continue to [Part 2.](https://github.com/stakeconomy/solanamonitoring/blob/main/How%20to%20Install%20TIG%20Stack.md) that was written to help you setup your own TIG (Telegraf/InfluxDB/Grafana) stack.
+If one identity has multiple vote accounts, add:
 
-Stake with Stakeconomy.com validator on Solflare.
-Vote Account: [GNZ1PAAS33davY4Q1BMEpZEpVBtRtGvSpcTH5wYVkkVt](https://solanabeach.io/validator/GNZ1PAAS33davY4Q1BMEpZEpVBtRtGvSpcTH5wYVkkVt)
+```bash
+--vote-account VOTE_ACCOUNT_PUBKEY
+```
+
+Run `./monitor.sh --help` for all command-line and environment-variable options.
+
+## Safe Telegraf execution
+
+Telegraf should remain an unprivileged service. Allow it to run only this collector as the validator user.
+
+Create `/etc/sudoers.d/telegraf-solana-monitor` with `visudo`:
+
+```sudoers
+telegraf ALL=(solana) NOPASSWD: /home/solana/solanamonitoring/monitor.sh
+```
+
+Validate the rule:
+
+```bash
+sudo chmod 0440 /etc/sudoers.d/telegraf-solana-monitor
+sudo chown root:root /etc/sudoers.d/telegraf-solana-monitor
+sudo visudo -c
+sudo -ll -U telegraf
+```
+
+The effective rules must not contain `telegraf ALL=(ALL) NOPASSWD:ALL`.
+
+The Telegraf command is:
+
+```bash
+/usr/bin/sudo -n -H -u solana -- \
+  /home/solana/solanamonitoring/monitor.sh \
+  --rpc-url http://127.0.0.1:8899 \
+  --rpc-timeout 20 \
+  --price-timeout 3
+```
+
+Start from [`telegraf/solana-monitoring.conf.example`](telegraf/solana-monitoring.conf.example). Change the hostname, validator username, repository path, RPC URL, and real validator mount points. Keep the Stakeconomy output settings when using the community dashboard.
+
+Do not configure `data_type = "integer"`; the emitted line contains both integer and floating-point fields.
+
+## Migrating an existing validator
+
+Follow the [community-dashboard migration guide](docs/installation.md). It covers backups, a side-by-side test, removal of unrestricted sudo, Telegraf validation, rollout checks, and rollback.
+
+The new collector retains the existing `nodemonitor` measurement and field names, so no database migration is required.
+
+## RPC and epoch ETA behavior
+
+The collector prefers the local validator RPC. It batches compatible JSON-RPC calls to reduce subprocess and RPC overhead.
+
+`epochEnds` normally uses recent performance samples. If the local validator has transaction history disabled and returns no samples, the collector checks the RPC configured for the Solana CLI user and verifies its genesis hash before using it. An explicit `--performance-rpc-url` can override that source. Testnet can finally fall back to its 200 ms target slot duration; `--slot-ms` overrides the duration fallback.
+
+Whole-epoch block-production statistics require enough retained ledger data for the current epoch. Aggressive `--limit-ledger-size` pruning can make leader-slot and skip-rate history incomplete.
+
+## Dashboard maintenance
+
+The canonical dashboard is [`grafana/solana-community-validator-dashboard.json`](grafana/solana-community-validator-dashboard.json). Current-value cards use instant queries and historical panels cap their resolution to protect the shared query endpoint.
+
+Dashboard transformation files are retained so changes remain repeatable and regression-testable:
+
+- `grafana/optimize-dashboard.jq`
+- `grafana/enhance-dashboard.jq`
+
+## Tests
+
+Run before every pull request:
+
+```bash
+bash -n monitor.sh tests/test-*.sh
+./tests/test-monitor.sh
+./tests/test-dashboard.sh
+./tests/test-telegraf.sh
+```
+
+See [Interpreting monitoring metrics](Guidelines%20interpreting%20metrics.md) for operational guidance.
+
+Stake with the Stakeconomy validator on Solflare. Vote account: [`GNZ1PAAS33davY4Q1BMEpZEpVBtRtGvSpcTH5wYVkkVt`](https://solanabeach.io/validator/GNZ1PAAS33davY4Q1BMEpZEpVBtRtGvSpcTH5wYVkkVt).
