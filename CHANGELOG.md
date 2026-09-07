@@ -13,7 +13,7 @@
 
 ### Dashboard
 
-- Separated validator identity and system-host selectors.
+- Linked validator identity and system host through one selector so validator and OS metrics cannot be mixed accidentally.
 - Added dynamic filesystem and interface selectors with virtual-resource filtering.
 - Added aligned software-version and validator-health timelines.
 - Added balance, delinquency, skip-gap, normalized-load, and host-health views.

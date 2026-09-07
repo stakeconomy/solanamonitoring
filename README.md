@@ -16,7 +16,7 @@ Validator metrics include status, root and vote slots, vote credits, active stak
 
 Host metrics include total CPU, IOWait, normalized load, memory, swap, relevant filesystem utilization, network traffic/errors, UDP errors, process states, TCP states, allocated file handles, and context switches.
 
-The dashboard supports independent validator and host selection, dynamic mount/interface selectors, software-version and health timelines, mirrored receive/transmit traffic, and filters for virtual resources.
+The dashboard uses one linked validator/system selector, automatically maps the selected validator identity to its reporting host, and supports dynamic mount/interface selectors, software-version and health timelines, mirrored receive/transmit traffic, and filters for virtual resources.
 
 ## Requirements
 

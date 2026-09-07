@@ -61,12 +61,21 @@ jq -e '
 ' "$dashboard" >/dev/null || fail 'dashboard contains a hard-coded Prometheus datasource UID'
 
 jq -e '
-  (.templating.list[] | select(.name == "server")) as $server
-  | ($server.hide == 0)
-    and ($server.query.query == "label_values(mem_used_percent,host)")
+  (.templating.list[] | select(.name == "pubkey")) as $pubkey
+  | (.templating.list[] | select(.name == "server")) as $server
+  | ($pubkey.hide == 0)
+    and ($pubkey.label == "Validator / system")
+    and ($pubkey.query.query | contains("label_join"))
+    and ($pubkey.query.query | contains("tlast_over_time(nodemonitor_status[24h])"))
+    and ($pubkey.regex | contains("?<text>"))
+    and ($pubkey.regex | contains("?<value>"))
+    and ($server.hide == 2)
+    and ($server.skipUrlSync == true)
+    and ($server.query.query | contains("nodemonitor_status{pubkey=\"$pubkey\"}"))
+    and ($server.query.query | contains("tlast_over_time"))
   and (.templating.list[] | select(.name == "mountpoint") | .multi and .includeAll)
   and (.templating.list[] | select(.name == "interface") | .multi and .includeAll)
-' "$dashboard" >/dev/null || fail 'host, mount-point or network-interface discovery is not configured correctly'
+' "$dashboard" >/dev/null || fail 'validator-host linking, mount-point or network-interface discovery is not configured correctly'
 
 jq -e '
   .templating.list[]

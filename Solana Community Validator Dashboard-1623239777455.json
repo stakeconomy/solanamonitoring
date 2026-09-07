@@ -21,7 +21,7 @@
       }
     ]
   },
-  "description": "Solana validator and host health dashboard maintained by Stakeconomy.com. Supports independent validator/system-host selection, dynamic mounts and interfaces, and aligned software/status timelines.",
+  "description": "Solana validator and host health dashboard maintained by Stakeconomy.com. Links each validator identity to its reporting system host and supports dynamic mounts, interfaces, and aligned software/status timelines.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -5604,26 +5604,27 @@
       {
         "current": {
           "selected": false,
-          "text": "4QNekaDqrLmUENqkVhGCJrgHziPxkX9kridbKwunx9su",
+          "text": "mainnet-stakeconomy — 4QNekaDqrLmUENqkVhGCJrgHziPxkX9kridbKwunx9su",
           "value": "4QNekaDqrLmUENqkVhGCJrgHziPxkX9kridbKwunx9su"
         },
         "datasource": {
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(nodemonitor_status,pubkey)",
+        "definition": "query_result(label_join(topk(1, tlast_over_time(nodemonitor_status[24h])) by (pubkey), \"a_display\", \" — \", \"host\", \"pubkey\"))",
+        "description": "Select a validator by system name or identity. The system host is derived automatically from the newest monitor sample.",
         "hide": 0,
         "includeAll": false,
-        "label": "Validator identity",
+        "label": "Validator / system",
         "multi": false,
         "name": "pubkey",
         "options": [],
         "query": {
-          "query": "label_values(nodemonitor_status,pubkey)",
+          "query": "query_result(label_join(topk(1, tlast_over_time(nodemonitor_status[24h])) by (pubkey), \"a_display\", \" — \", \"host\", \"pubkey\"))",
           "refId": "StandardVariableQuery"
         },
         "refresh": 1,
-        "regex": "",
+        "regex": "/a_display=\"(?<text>[^\"]+)\".*pubkey=\"(?<value>[^\"]+)\"/",
         "skipUrlSync": false,
         "sort": 1,
         "type": "query"
@@ -5638,20 +5639,21 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(mem_used_percent,host)",
-        "hide": 0,
+        "definition": "query_result(topk(1, tlast_over_time(nodemonitor_status{pubkey=\"$pubkey\"}[24h])))",
+        "description": "Automatically derived from the selected validator identity.",
+        "hide": 2,
         "includeAll": false,
         "label": "System host",
         "multi": false,
         "name": "server",
         "options": [],
         "query": {
-          "query": "label_values(mem_used_percent,host)",
+          "query": "query_result(topk(1, tlast_over_time(nodemonitor_status{pubkey=\"$pubkey\"}[24h])))",
           "refId": "StandardVariableQuery"
         },
         "refresh": 1,
-        "regex": "",
-        "skipUrlSync": false,
+        "regex": "/host=\"([^\"]+)\"/",
+        "skipUrlSync": true,
         "sort": 1,
         "type": "query"
       },
@@ -5785,7 +5787,7 @@
   "timezone": "utc",
   "title": "Solana Community Validator Dashboard",
   "uid": "f2b2HcaGz",
-  "version": 116,
+  "version": 117,
   "weekStart": "monday",
   "__inputs": [
     {
