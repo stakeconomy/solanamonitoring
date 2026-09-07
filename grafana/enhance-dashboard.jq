@@ -111,21 +111,31 @@ def interface_filter:
     "4305": {"color": "semi-dark-orange", "text": "4.3.0 beta 5"}
   }) as $version_mappings
 | {
-    "current": $pubkey_var.current,
+    "current": (
+      if $pubkey_var.current.value == "4QNekaDqrLmUENqkVhGCJrgHziPxkX9kridbKwunx9su"
+      then {
+        "selected": false,
+        "text": "mainnet-stakeconomy — 4QNekaDqrLmUENqkVhGCJrgHziPxkX9kridbKwunx9su",
+        "value": "4QNekaDqrLmUENqkVhGCJrgHziPxkX9kridbKwunx9su"
+      }
+      else $pubkey_var.current
+      end
+    ),
     "datasource": datasource,
-    "definition": "label_values(nodemonitor_status,pubkey)",
+    "definition": "query_result(label_join(topk(1, tlast_over_time(nodemonitor_status[24h])) by (pubkey), \"a_display\", \" — \", \"host\", \"pubkey\"))",
+    "description": "Select a validator by system name or identity. The system host is derived automatically from the newest monitor sample.",
     "hide": 0,
     "includeAll": false,
-    "label": "Validator identity",
+    "label": "Validator / system",
     "multi": false,
     "name": "pubkey",
     "options": [],
     "query": {
-      "query": "label_values(nodemonitor_status,pubkey)",
+      "query": "query_result(label_join(topk(1, tlast_over_time(nodemonitor_status[24h])) by (pubkey), \"a_display\", \" — \", \"host\", \"pubkey\"))",
       "refId": "StandardVariableQuery"
     },
     "refresh": 1,
-    "regex": "",
+    "regex": "/a_display=\"(?<text>[^\"]+)\".*pubkey=\"(?<value>[^\"]+)\"/",
     "skipUrlSync": false,
     "sort": 1,
     "type": "query"
@@ -133,20 +143,21 @@ def interface_filter:
 | {
     "current": $server_var.current,
     "datasource": datasource,
-    "definition": "label_values(mem_used_percent,host)",
-    "hide": 0,
+    "definition": "query_result(topk(1, tlast_over_time(nodemonitor_status{pubkey=\"$pubkey\"}[24h])))",
+    "description": "Automatically derived from the selected validator identity.",
+    "hide": 2,
     "includeAll": false,
     "label": "System host",
     "multi": false,
     "name": "server",
     "options": [],
     "query": {
-      "query": "label_values(mem_used_percent,host)",
+      "query": "query_result(topk(1, tlast_over_time(nodemonitor_status{pubkey=\"$pubkey\"}[24h])))",
       "refId": "StandardVariableQuery"
     },
     "refresh": 1,
-    "regex": "",
-    "skipUrlSync": false,
+    "regex": "/host=\"([^\"]+)\"/",
+    "skipUrlSync": true,
     "sort": 1,
     "type": "query"
   } as $new_server_var
@@ -202,6 +213,7 @@ def interface_filter:
 | .templating.list = [$new_pubkey_var, $new_server_var, $mountpoint_var, $interface_var, $new_interval_var]
 | (any(.panels[]; .id == 160)) as $layout_done
 | (any(.panels[]; .id == 54 and .targets[0].instant == true and .targets[0].range == false)) as $query_optimization_done
+| (($pubkey_var.label == "Validator / system") and ($server_var.hide == 2)) as $selector_linked
 | .panels |= map(
     if ($layout_done | not) and .gridPos.y >= 17 then
       .gridPos.y += 6
@@ -579,8 +591,8 @@ def interface_filter:
     {"type": "grafana", "id": "grafana", "name": "Grafana", "version": "9.2.3"},
     {"type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0"}
   ]
-| .description = "Solana validator and host health dashboard maintained by Stakeconomy.com. Supports independent validator/system-host selection, dynamic mounts and interfaces, and aligned software/status timelines."
+| .description = "Solana validator and host health dashboard maintained by Stakeconomy.com. Links each validator identity to its reporting system host and supports dynamic mounts, interfaces, and aligned software/status timelines."
 | .refresh = "1m"
 | .timepicker.refresh_intervals = ["1m", "2m", "5m", "15m", "30m", "1h"]
 | .annotations.list |= map(.enable = false)
-| .version = ((.version // 0) + (if ($layout_done and $query_optimization_done) then 0 else 1 end))
+| .version = ((.version // 0) + (if ($layout_done and $query_optimization_done and $selector_linked) then 0 else 1 end))
