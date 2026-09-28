@@ -140,7 +140,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_pctEpochElapsed{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_pctEpochElapsed{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "__auto",
           "range": false,
           "refId": "A",
@@ -208,7 +208,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "nodemonitor_epochEnds{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_epochEnds{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "format": "time_series",
           "instant": true,
           "legendFormat": "{{label_name}}",
@@ -318,7 +318,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_status{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_status{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "__auto",
           "range": false,
           "refId": "A",
@@ -340,7 +340,7 @@
             "mode": "thresholds"
           },
           "decimals": 0,
-          "displayName": "Leader slots",
+          "displayName": "Scheduled slots present",
           "mappings": [],
           "noValue": "No recent data",
           "thresholds": {
@@ -386,17 +386,18 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_leaderSlots{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_leaderSlots{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "__auto",
           "range": false,
           "refId": "A",
           "instant": true
         }
       ],
-      "title": "Leader slots",
+      "title": "Scheduled slots with a block present",
       "transparent": true,
       "type": "stat",
-      "maxDataPoints": 1
+      "maxDataPoints": 1,
+      "description": "getBlockProduction scheduled slots with a block present; this is not an Alpenglow Votor or certificate-finality metric."
     },
     {
       "datasource": {
@@ -409,7 +410,7 @@
             "mode": "thresholds"
           },
           "decimals": 0,
-          "displayName": "Skipped slots",
+          "displayName": "Scheduled slots absent",
           "mappings": [],
           "noValue": "No recent data",
           "thresholds": {
@@ -455,17 +456,18 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_skippedSlots{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_skippedSlots{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "__auto",
           "range": false,
           "refId": "A",
           "instant": true
         }
       ],
-      "title": "Skipped leader slots",
+      "title": "Scheduled-slot absence",
       "transparent": true,
       "type": "stat",
-      "maxDataPoints": 1
+      "maxDataPoints": 1,
+      "description": "getBlockProduction scheduled slots without a block present; this is not an Alpenglow Votor or certificate-finality metric."
     },
     {
       "datasource": {
@@ -534,7 +536,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_pctSkipped{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_pctSkipped{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "__auto",
           "range": false,
           "refId": "A",
@@ -606,7 +608,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_activatedStake{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_activatedStake{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "__auto",
           "range": false,
           "refId": "A",
@@ -675,7 +677,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_nodes{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_nodes{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "__auto",
           "range": false,
           "refId": "A",
@@ -744,7 +746,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "count(count(last_over_time(nodemonitor_status[10m])) by (pubkey))",
+          "expr": "count(count(last_over_time(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\"}[10m])) by (pubkey))",
           "legendFormat": "Online reporters",
           "range": false,
           "refId": "A",
@@ -1450,7 +1452,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_solanaPrice{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_solanaPrice{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "__auto",
           "range": false,
           "refId": "A",
@@ -1590,7 +1592,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_commission{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_commission{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "__auto",
           "range": false,
           "refId": "A",
@@ -1670,7 +1672,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_epoch{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_epoch{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "__auto",
           "range": false,
           "refId": "A",
@@ -1995,7 +1997,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_version{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_version{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "__auto",
           "range": false,
           "refId": "A",
@@ -2073,7 +2075,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_validatorBalance{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_validatorBalance{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "hide": false,
           "legendFormat": "Identity balance",
           "range": false,
@@ -2147,7 +2149,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_validatorVoteBalance{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_validatorVoteBalance{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "hide": false,
           "legendFormat": "Vote-account balance",
           "range": false,
@@ -2225,7 +2227,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_pctTotDelinquent{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_pctTotDelinquent{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "hide": false,
           "legendFormat": "Cluster delinquent stake",
           "range": false,
@@ -2303,7 +2305,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_pctSkipped{pubkey=\"$pubkey\"} - nodemonitor_pctTotSkipped{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_pctSkipped{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} - nodemonitor_pctTotSkipped{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "hide": false,
           "legendFormat": "Skip-rate gap",
           "range": false,
@@ -2422,7 +2424,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_pctSkipped{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_pctSkipped{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "interval": "",
           "legendFormat": "My Skiprate",
           "range": true,
@@ -2435,7 +2437,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_pctTotSkipped{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_pctTotSkipped{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "hide": false,
           "legendFormat": "Cluster Skiprate",
           "range": true,
@@ -2538,7 +2540,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "rate(nodemonitor_tps{pubkey=\"$pubkey\"}[5m])",
+          "expr": "rate(nodemonitor_tps{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])",
           "interval": "",
           "legendFormat": "Cluster TPS",
           "range": true,
@@ -2862,7 +2864,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_version{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_version{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "hide": false,
           "legendFormat": "Validator software version",
           "range": true,
@@ -2953,7 +2955,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_status{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_status{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "hide": false,
           "legendFormat": "Validator health state",
           "range": true,
@@ -3053,7 +3055,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_leaderSlots{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_leaderSlots{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "Leaderslots",
           "range": true,
           "refId": "A",
@@ -3065,7 +3067,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_skippedSlots{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_skippedSlots{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "hide": false,
           "legendFormat": "Skipped",
           "range": true,
@@ -3166,7 +3168,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "rate(nodemonitor_credits{pubkey=\"$pubkey\"}[5m])",
+          "expr": "rate(nodemonitor_credits{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])",
           "legendFormat": "Credits rate",
           "range": true,
           "refId": "A",
@@ -3268,16 +3270,16 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_pctVote{pubkey=\"$pubkey\"}/16",
-          "legendFormat": "Vote-credit efficiency",
+          "expr": "nodemonitor_pctVote{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}/16",
+          "legendFormat": "Tower vote-credit efficiency",
           "range": true,
           "refId": "A",
           "instant": false
         }
       ],
-      "title": "Vote-credit efficiency",
+      "title": "Tower vote-credit efficiency",
       "type": "timeseries",
-      "description": "Earned timely vote credits as a percentage of the theoretical maximum.",
+      "description": "Tower-only credit-efficiency estimate. It is intentionally unavailable on Alpenglow clusters.",
       "maxDataPoints": 1200
     },
     {
@@ -3367,7 +3369,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_validatorCreditsCurrent{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_validatorCreditsCurrent{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "Epoch credits",
           "range": true,
           "refId": "A",
@@ -3472,7 +3474,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_pctTotDelinquent{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_pctTotDelinquent{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "interval": "$inter",
           "legendFormat": "Delinquent stake",
           "range": true,
@@ -3571,7 +3573,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_validatorBalance{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_validatorBalance{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "Identity balance",
           "range": true,
           "refId": "A",
@@ -3672,7 +3674,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_activatedStake{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_activatedStake{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "Active stake",
           "range": true,
           "refId": "A",
@@ -3768,7 +3770,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_validatorVoteBalance{pubkey=\"$pubkey\"}",
+          "expr": "nodemonitor_validatorVoteBalance{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
           "legendFormat": "Vote-account balance",
           "range": true,
           "refId": "A",
@@ -4729,7 +4731,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_openFiles{host=\"$server\"}",
+          "expr": "nodemonitor_openFiles{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",host=\"$server\"}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A",
@@ -5604,6 +5606,62 @@
       {
         "current": {
           "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(nodemonitor_collectorUp,cluster)",
+        "description": "Required cluster scope. Untagged legacy data is intentionally excluded.",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Cluster",
+        "multi": false,
+        "name": "cluster",
+        "options": [],
+        "query": {
+          "query": "label_values(nodemonitor_collectorUp,cluster)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(nodemonitor_collectorUp{cluster=~\"$cluster\"},genesis)",
+        "description": "Required exact genesis scope for the selected cluster.",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Genesis",
+        "multi": false,
+        "name": "genesis",
+        "options": [],
+        "query": {
+          "query": "label_values(nodemonitor_collectorUp{cluster=~\"$cluster\"},genesis)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
           "text": "mainnet-stakeconomy — 4QNekaDqrLmUENqkVhGCJrgHziPxkX9kridbKwunx9su",
           "value": "4QNekaDqrLmUENqkVhGCJrgHziPxkX9kridbKwunx9su"
         },
@@ -5611,8 +5669,8 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "query_result(label_join(topk(1, tlast_over_time(nodemonitor_status[24h])) by (pubkey), \"a_display\", \" — \", \"host\", \"pubkey\"))",
-        "description": "Select a validator by system name or identity. The system host is derived automatically from the newest monitor sample.",
+        "definition": "query_result(label_join(topk(1, tlast_over_time(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\"}[24h])) by (pubkey), \"a_display\", \" — \", \"host\", \"pubkey\"))",
+        "description": "Select a validator identity after selecting a cluster and genesis. The system host is derived from its newest schema-v2 monitor sample.",
         "hide": 0,
         "includeAll": false,
         "label": "Validator / system",
@@ -5620,11 +5678,39 @@
         "name": "pubkey",
         "options": [],
         "query": {
-          "query": "query_result(label_join(topk(1, tlast_over_time(nodemonitor_status[24h])) by (pubkey), \"a_display\", \" — \", \"host\", \"pubkey\"))",
+          "query": "query_result(label_join(topk(1, tlast_over_time(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\"}[24h])) by (pubkey), \"a_display\", \" — \", \"host\", \"pubkey\"))",
           "refId": "StandardVariableQuery"
         },
         "refresh": 1,
         "regex": "/a_display=\"(?<text>[^\"]+)\".*pubkey=\"(?<value>[^\"]+)\"/",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\"},vote_account)",
+        "description": "Required monitored vote account scope for the selected identity.",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Vote account",
+        "multi": false,
+        "name": "vote_account",
+        "options": [],
+        "query": {
+          "query": "label_values(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\"},vote_account)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
         "skipUrlSync": false,
         "sort": 1,
         "type": "query"
@@ -5639,7 +5725,7 @@
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "query_result(topk(1, tlast_over_time(nodemonitor_status{pubkey=\"$pubkey\"}[24h])))",
+        "definition": "query_result(topk(1, tlast_over_time(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[24h])))",
         "description": "Automatically derived from the selected validator identity.",
         "hide": 2,
         "includeAll": false,
@@ -5648,7 +5734,7 @@
         "name": "server",
         "options": [],
         "query": {
-          "query": "query_result(topk(1, tlast_over_time(nodemonitor_status{pubkey=\"$pubkey\"}[24h])))",
+          "query": "query_result(topk(1, tlast_over_time(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[24h])))",
           "refId": "StandardVariableQuery"
         },
         "refresh": 1,

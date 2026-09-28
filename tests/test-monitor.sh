@@ -55,6 +55,14 @@ assert_contains "$mainnet_output" 'legacyVoteCreditsTotal=2336223624i'
 assert_contains "$mainnet_output" 'legacyVoteCreditsEpoch=282326i'
 assert_contains "$mainnet_output" 'legacyVoteCreditEfficiencyPct=1568.48'
 
+tower_testnet_output="$(
+  MOCK_AG_CERT_NULL=1 CURL_BIN="$mock_curl" \
+  "$repo_dir/monitor.sh" --identity "$identity" --rpc-url http://mock-rpc.invalid
+)"
+assert_contains "$tower_testnet_output" 'cluster=testnet'
+assert_contains "$tower_testnet_output" 'consensus=tower'
+assert_contains "$tower_testnet_output" 'legacyVoteCreditEfficiencyPct=1568.48'
+
 set +e
 failure_output="$(
   MOCK_RPC_FAIL=1 CURL_BIN="$mock_curl" \

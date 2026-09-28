@@ -4,6 +4,10 @@
 
 ### Collector
 
+- Added schema-v2 `cluster`, `genesis`, `consensus`, `pubkey`, and `vote_account` tags, preventing shared-database mainnet/testnet collisions.
+- Detects Tower versus Alpenglow with `getAgGenesisCert`; Tower credit-efficiency fields are deliberately omitted for Alpenglow.
+- Adds collector and scheduled-slot-production provenance fields instead of fabricating zeroes after a failed supplemental RPC batch.
+
 - Replaced repeated Solana CLI calls with batched JSON-RPC requests.
 - Added explicit RPC, identity, vote-account, timeout, performance-RPC, and slot-duration options.
 - Added local, configured-CLI, cluster, and slot-duration fallbacks for epoch ETA.
@@ -12,6 +16,9 @@
 - Added deterministic fixtures and regression tests.
 
 ### Dashboard
+
+- Requires cluster, genesis, identity, and vote-account selectors for all validator metrics.
+- Renamed leader/skip cards to qualified scheduled-slot production terminology and labels Tower credit efficiency as Tower-only.
 
 - Linked validator identity and system host through one selector so validator and OS metrics cannot be mixed accidentally.
 - Added dynamic filesystem and interface selectors with virtual-resource filtering.

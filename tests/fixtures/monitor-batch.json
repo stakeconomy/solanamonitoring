@@ -67,5 +67,13 @@
     "jsonrpc": "2.0",
     "result": "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY",
     "id": "genesisHash"
+  },
+  {
+    "jsonrpc": "2.0",
+    "result": {
+      "block": {"slot": 437726000, "blockId": [1, 2, 3]},
+      "signature": {"signature": [1], "bitmap": [1]}
+    },
+    "id": "agGenesisCert"
   }
 ]

@@ -16,20 +16,20 @@ Every successful `nodemonitor` record must have these tags:
 
 - `cluster`: canonical name derived from genesis (`mainnet-beta`, `testnet`, `devnet`, or `custom`)
 - `genesis`: exact `getGenesisHash` result
-- `consensus`: `tower`, `alpenglow`, or `unknown`
+- `consensus`: `tower`, `alpenglow`, or `unknown`, determined from `getAgGenesisCert`
 - `pubkey`: validator identity
 - `vote_account`: monitored vote account
 - `schema`: `2`
 
 The exact genesis hash is the collision-proof cluster identity. `cluster` is for people and Grafana selection; it is never inferred from a URL or a pubkey.
 
-Known mapping:
+Known genesis-to-cluster mapping:
 
-- `5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp` → `mainnet-beta`, `tower`
-- `4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY` → `testnet`, `alpenglow`
-- `EtWTRABZaYq6iMfeYKouRu166VU2xqa1` → `devnet`, `unknown`
+- `5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp` → `mainnet-beta`
+- `4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY` → `testnet`
+- `EtWTRABZaYq6iMfeYKouRu166VU2xqa1` → `devnet`
 
-`SOLANA_EXPECTED_CLUSTER` and `SOLANA_EXPECTED_GENESIS` may pin a deployment. A mismatch emits a schema-v2 status-only record with `genesisMatch=0` and must not emit performance fields.
+`getAgGenesisCert` is the consensus detector: a non-null certificate means `alpenglow`; a null result means `tower`; an RPC error is `unknown`. The detector is not inferred from cluster name or validator version.
 
 ## Field rules
 

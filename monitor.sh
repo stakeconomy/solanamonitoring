@@ -360,7 +360,8 @@ batch_payload="$(jq -cn --arg identity "$identity_pubkey" --arg vote "$vote_acco
   {jsonrpc:"2.0",id:"performance",method:"getRecentPerformanceSamples",params:[5]},
   {jsonrpc:"2.0",id:"identityBalance",method:"getBalance",params:[$identity,{commitment:"confirmed"}]},
   {jsonrpc:"2.0",id:"voteBalance",method:"getBalance",params:[$vote,{commitment:"confirmed"}]},
-  {jsonrpc:"2.0",id:"genesisHash",method:"getGenesisHash"}
+  {jsonrpc:"2.0",id:"genesisHash",method:"getGenesisHash"},
+  {jsonrpc:"2.0",id:"agGenesisCert",method:"getAgGenesisCert"}
 ]')"
 
 batch_response='[]'
@@ -378,6 +379,7 @@ batch_summary="$(jq -c --arg identity "$identity_pubkey" '
   (response("clusterNodes").result // []) as $nodes |
   (response("epochInfo").result // {}) as $epoch |
   (response("performance").result // []) as $performance |
+  (response("agGenesisCert")) as $agGenesisCert |
   ($bp.byIdentity[$identity] // [0, 0]) as $validatorProduction |
   ([($bp.byIdentity // {})[] | .[0]] | add // 0) as $clusterLeaderSlots |
   ([($bp.byIdentity // {})[] | .[1]] | add // 0) as $clusterProducedBlocks |
@@ -396,7 +398,13 @@ batch_summary="$(jq -c --arg identity "$identity_pubkey" '
     sampleSeconds: ([$performance[].samplePeriodSecs] | add // 0),
     identityBalance: (response("identityBalance").result.value // 0),
     voteBalance: (response("voteBalance").result.value // 0),
-    genesisHash: (response("genesisHash").result // "")
+    genesisHash: (response("genesisHash").result // ""),
+    consensus: (
+      if $agGenesisCert.error != null then "unknown"
+      elif $agGenesisCert.result == null then "tower"
+      else "alpenglow"
+      end
+    )
   }
 ' <<<"$batch_response")"
 
@@ -438,7 +446,8 @@ sample_seconds="$(jq -r '.sampleSeconds' <<<"$batch_summary")"
 identity_balance_lamports="$(jq -r '.identityBalance' <<<"$batch_summary")"
 vote_balance_lamports="$(jq -r '.voteBalance' <<<"$batch_summary")"
 genesis_hash="$(jq -r '.genesisHash' <<<"$batch_summary")"
-IFS=$'\t' read -r cluster consensus <<<"$(cluster_metadata_for_genesis "$genesis_hash")"
+IFS=$'\t' read -r cluster _ <<<"$(cluster_metadata_for_genesis "$genesis_hash")"
+consensus="$(jq -r '.consensus' <<<"$batch_summary")"
 
 # Some validator builds expose getRecentPerformanceSamples but don't populate
 # their local PerfSamples column. Prefer the Solana user's configured CLI RPC

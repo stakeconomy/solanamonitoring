@@ -61,7 +61,10 @@ if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$payload"; then
     batch_filter+=' | map(if .id == "genesisHash" then .result = "UnknownGenesis111111111111111111111111111" else . end)'
   fi
   if [[ "${MOCK_MAINNET:-0}" == 1 ]]; then
-    batch_filter+=' | map(if .id == "genesisHash" then .result = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" else . end)'
+    batch_filter+=' | map(if .id == "genesisHash" then .result = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" elif .id == "agGenesisCert" then .result = null else . end)'
+  fi
+  if [[ "${MOCK_AG_CERT_NULL:-0}" == 1 ]]; then
+    batch_filter+=' | map(if .id == "agGenesisCert" then .result = null else . end)'
   fi
   exec jq "$batch_filter" "$fixture_dir/monitor-batch.json"
 fi

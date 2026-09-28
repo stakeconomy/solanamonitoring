@@ -1,6 +1,12 @@
 def datasource:
   {"type": "prometheus", "uid": "${DS_PROMETHEUS}"};
 
+def scope_nodemonitor:
+  gsub(
+    "\\{pubkey=\\\"\\$pubkey\\\"\\}";
+    "{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}"
+  );
+
 def target($ref; $expr; $legend):
   {
     "datasource": datasource,
@@ -122,8 +128,8 @@ def interface_filter:
       end
     ),
     "datasource": datasource,
-    "definition": "query_result(label_join(topk(1, tlast_over_time(nodemonitor_status[24h])) by (pubkey), \"a_display\", \" — \", \"host\", \"pubkey\"))",
-    "description": "Select a validator by system name or identity. The system host is derived automatically from the newest monitor sample.",
+    "definition": "query_result(label_join(topk(1, tlast_over_time(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\"}[24h])) by (pubkey), \"a_display\", \" — \", \"host\", \"pubkey\"))",
+    "description": "Select a validator identity after selecting a cluster and genesis. The system host is derived from its newest schema-v2 monitor sample.",
     "hide": 0,
     "includeAll": false,
     "label": "Validator / system",
@@ -131,7 +137,7 @@ def interface_filter:
     "name": "pubkey",
     "options": [],
     "query": {
-      "query": "query_result(label_join(topk(1, tlast_over_time(nodemonitor_status[24h])) by (pubkey), \"a_display\", \" — \", \"host\", \"pubkey\"))",
+      "query": "query_result(label_join(topk(1, tlast_over_time(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\"}[24h])) by (pubkey), \"a_display\", \" — \", \"host\", \"pubkey\"))",
       "refId": "StandardVariableQuery"
     },
     "refresh": 1,
@@ -141,9 +147,39 @@ def interface_filter:
     "type": "query"
   } as $new_pubkey_var
 | {
+    "current": {"selected": false, "text": "", "value": ""},
+    "datasource": datasource,
+    "definition": "label_values(nodemonitor_collectorUp,cluster)",
+    "description": "Required cluster scope. Untagged legacy data is intentionally excluded.",
+    "hide": 0, "includeAll": false, "label": "Cluster", "multi": false,
+    "name": "cluster", "options": [],
+    "query": {"query": "label_values(nodemonitor_collectorUp,cluster)", "refId": "StandardVariableQuery"},
+    "refresh": 1, "regex": "", "skipUrlSync": false, "sort": 1, "type": "query"
+  } as $new_cluster_var
+| {
+    "current": {"selected": false, "text": "", "value": ""},
+    "datasource": datasource,
+    "definition": "label_values(nodemonitor_collectorUp{cluster=~\"$cluster\"},genesis)",
+    "description": "Required exact genesis scope for the selected cluster.",
+    "hide": 0, "includeAll": false, "label": "Genesis", "multi": false,
+    "name": "genesis", "options": [],
+    "query": {"query": "label_values(nodemonitor_collectorUp{cluster=~\"$cluster\"},genesis)", "refId": "StandardVariableQuery"},
+    "refresh": 1, "regex": "", "skipUrlSync": false, "sort": 1, "type": "query"
+  } as $new_genesis_var
+| {
+    "current": {"selected": false, "text": "", "value": ""},
+    "datasource": datasource,
+    "definition": "label_values(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\"},vote_account)",
+    "description": "Required monitored vote account scope for the selected identity.",
+    "hide": 0, "includeAll": false, "label": "Vote account", "multi": false,
+    "name": "vote_account", "options": [],
+    "query": {"query": "label_values(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\"},vote_account)", "refId": "StandardVariableQuery"},
+    "refresh": 1, "regex": "", "skipUrlSync": false, "sort": 1, "type": "query"
+  } as $new_vote_account_var
+| {
     "current": $server_var.current,
     "datasource": datasource,
-    "definition": "query_result(topk(1, tlast_over_time(nodemonitor_status{pubkey=\"$pubkey\"}[24h])))",
+    "definition": "query_result(topk(1, tlast_over_time(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[24h])))",
     "description": "Automatically derived from the selected validator identity.",
     "hide": 2,
     "includeAll": false,
@@ -152,7 +188,7 @@ def interface_filter:
     "name": "server",
     "options": [],
     "query": {
-      "query": "query_result(topk(1, tlast_over_time(nodemonitor_status{pubkey=\"$pubkey\"}[24h])))",
+      "query": "query_result(topk(1, tlast_over_time(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[24h])))",
       "refId": "StandardVariableQuery"
     },
     "refresh": 1,
@@ -210,7 +246,7 @@ def interface_filter:
     | .options |= map(select(.value != "10s" and .value != "30s"))
     | .options |= map(.selected = (.value == "1m"))
   ) as $new_interval_var
-| .templating.list = [$new_pubkey_var, $new_server_var, $mountpoint_var, $interface_var, $new_interval_var]
+| .templating.list = [$new_cluster_var, $new_genesis_var, $new_pubkey_var, $new_vote_account_var, $new_server_var, $mountpoint_var, $interface_var, $new_interval_var]
 | (any(.panels[]; .id == 160)) as $layout_done
 | (any(.panels[]; .id == 54 and .targets[0].instant == true and .targets[0].range == false)) as $query_optimization_done
 | (($pubkey_var.label == "Validator / system") and ($server_var.hide == 2)) as $selector_linked
@@ -241,12 +277,14 @@ def interface_filter:
           + [{"color": "dark-red", "value": 4}]
         )
     elif .id == 99 then
-      .title = "Leader slots"
-      | .fieldConfig.defaults.displayName = "Leader slots"
+      .title = "Scheduled slots with a block present"
+      | .description = "getBlockProduction scheduled slots with a block present; this is not an Alpenglow Votor or certificate-finality metric."
+      | .fieldConfig.defaults.displayName = "Scheduled slots present"
       | .targets[0].expr = "nodemonitor_leaderSlots{pubkey=\"$pubkey\"}"
     elif .id == 100 then
-      .title = "Skipped leader slots"
-      | .fieldConfig.defaults.displayName = "Skipped slots"
+      .title = "Scheduled-slot absence"
+      | .description = "getBlockProduction scheduled slots without a block present; this is not an Alpenglow Votor or certificate-finality metric."
+      | .fieldConfig.defaults.displayName = "Scheduled slots absent"
       | .targets[0].expr = "nodemonitor_skippedSlots{pubkey=\"$pubkey\"}"
     elif .id == 62 then
       .fieldConfig.defaults.displayName = "Skip rate"
@@ -259,7 +297,7 @@ def interface_filter:
     elif .id == 147 then
       .title = "Community validators online"
       | .description = "Validators that sent a status sample during the last 10 minutes."
-      | .targets[0].expr = "count(count(last_over_time(nodemonitor_status[10m])) by (pubkey))"
+      | .targets[0].expr = "count(count(last_over_time(nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\"}[10m])) by (pubkey))"
       | .targets[0].legendFormat = "Online reporters"
     elif .id == 71 then
       .title = "Root filesystem"
@@ -321,9 +359,9 @@ def interface_filter:
       | .targets[0].legendFormat = "Credits rate"
       | .description = "Five-minute rate of earned vote credits."
     elif .id == 126 then
-      .title = "Vote-credit efficiency"
-      | .description = "Earned timely vote credits as a percentage of the theoretical maximum."
-      | .targets[0].legendFormat = "Vote-credit efficiency"
+      .title = "Tower vote-credit efficiency"
+      | .description = "Tower-only credit-efficiency estimate. It is intentionally unavailable on Alpenglow clusters."
+      | .targets[0].legendFormat = "Tower vote-credit efficiency"
       | .fieldConfig.defaults.unit = "percent"
       | .fieldConfig.defaults.min = 0
       | .fieldConfig.defaults.max = 100
@@ -446,7 +484,7 @@ def interface_filter:
     elif .id == 118 then
       .title = "System allocated file handles"
       | .description = "System-wide allocated file handles reported by the validator monitor; unavailable on system-only Telegraf hosts."
-      | .targets[0].expr = "nodemonitor_openFiles{host=\"$server\"}"
+      | .targets[0].expr = "nodemonitor_openFiles{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",host=\"$server\"}"
     elif .id == 135 then
       .targets[0].expr = "rate(net_udp_indatagrams{host=\"$server\"}[$__rate_interval])"
       | .targets[1].expr = "rate(net_udp_outdatagrams{host=\"$server\"}[$__rate_interval])"
@@ -568,8 +606,10 @@ def interface_filter:
 | walk(
     if type == "object" then
       (if has("expr") then
-        del(.alias, .dsType, .groupBy, .measurement, .orderByTime, .policy, .resultFormat, .select, .tags)
+        (.expr |= scope_nodemonitor)
+        | del(.alias, .dsType, .groupBy, .measurement, .orderByTime, .policy, .resultFormat, .select, .tags)
       else . end)
+      | (if has("query") and (.query | type) == "string" then .query |= scope_nodemonitor else . end)
       | (if (.datasource? | type) == "object" and .datasource.type == "prometheus" then
           .datasource.uid = "${DS_PROMETHEUS}"
         else . end)

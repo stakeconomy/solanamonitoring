@@ -12,11 +12,11 @@ It is not a guide for installing a private Telegraf, time-series database, and G
 
 ## What is monitored
 
-Validator metrics include status, root and vote slots, vote credits, active stake, leader slots, skipped slots, validator and cluster skip rates, commission, software version, epoch progress and ETA, cluster TPS, SOL price, identity/vote balances, cluster size, and delinquent stake.
+Validator metrics are scoped by exact genesis, canonical cluster, identity, vote account, and detected consensus. They include status, root and vote slots, active stake, scheduled-slot production, commission, software version, epoch progress and ETA, cluster TPS, SOL price, identity/vote balances, cluster size, and delinquent stake. Tower vote-credit fields are emitted only when `getAgGenesisCert` reports Tower consensus; they are deliberately absent on Alpenglow.
 
 Host metrics include total CPU, IOWait, normalized load, memory, swap, relevant filesystem utilization, network traffic/errors, UDP errors, process states, TCP states, allocated file handles, and context switches.
 
-The dashboard uses one linked validator/system selector, automatically maps the selected validator identity to its reporting host, and supports dynamic mount/interface selectors, software-version and health timelines, mirrored receive/transmit traffic, and filters for virtual resources.
+The dashboard requires cluster, exact genesis, validator identity, and vote-account selection before mapping the selected validator to its reporting host. That prevents a mainnet and testnet identity from sharing a dashboard series. It supports dynamic mount/interface selectors, software-version and health timelines, mirrored receive/transmit traffic, and filters for virtual resources.
 
 ## Requirements
 
@@ -40,7 +40,7 @@ cd /home/solana/solanamonitoring
   --price-timeout 3
 ```
 
-It must emit exactly one line beginning with `nodemonitor,pubkey=` on standard output. Integer fields have the required Influx `i` suffix; balances and percentages remain floating point. Diagnostics are written to standard error.
+It must emit exactly one line beginning with `nodemonitor,cluster=` on standard output. The record includes `cluster`, `genesis`, `consensus`, `pubkey`, `vote_account`, and `schema=2` tags. Integer fields have the required Influx `i` suffix; balances and percentages remain floating point. Diagnostics are written to standard error.
 
 If one identity has multiple vote accounts, add:
 
@@ -89,7 +89,7 @@ Do not configure `data_type = "integer"`; the emitted line contains both integer
 
 Follow the [community-dashboard migration guide](docs/installation.md). It covers backups, a side-by-side test, removal of unrestricted sudo, Telegraf validation, rollout checks, and rollback.
 
-The new collector retains the existing `nodemonitor` measurement and field names, so no database migration is required.
+The collector retains the `nodemonitor` measurement but writes schema-v2 tagged series. Untagged historical data is legacy-unclassified and is intentionally excluded from normal cluster-scoped dashboard views; do not assign it retrospectively from a pubkey.
 
 ## RPC and epoch ETA behavior
 

@@ -40,14 +40,28 @@ jq -e '
 
 jq -e '
   [.templating.list[].name] as $variables
-  | ($variables | index("pubkey") != null)
+  | ($variables | index("cluster") != null)
+    and ($variables | index("genesis") != null)
+    and ($variables | index("pubkey") != null)
+    and ($variables | index("vote_account") != null)
     and ($variables | index("server") != null)
     and ($variables | index("mountpoint") != null)
     and ($variables | index("interface") != null)
     and ($variables | index("inter") != null)
     and ($variables | index("netif") == null)
     and ($variables | index("version") == null)
-' "$dashboard" >/dev/null || fail 'dashboard contains missing or obsolete variables'
+' "$dashboard" >/dev/null || fail 'dashboard contains missing Alpenglow cluster-scoping variables'
+
+jq -e '
+  [.. | objects | .expr? // empty | select(contains("nodemonitor_"))]
+  | all(.[]; test("nodemonitor_[A-Za-z0-9_]+\\{[^}]*cluster=~\\\"\\$cluster\\\"[^}]*genesis=~\\\"\\$genesis\\\""))
+' "$dashboard" >/dev/null || fail 'nodemonitor PromQL queries are not scoped by cluster and genesis'
+
+jq -e '
+  any(.panels[]; .id == 126 and (.title | contains("Tower")))
+  and any(.panels[]; .id == 99 and (.title | contains("Scheduled")))
+  and any(.panels[]; .id == 100 and (.title | contains("Scheduled")))
+' "$dashboard" >/dev/null || fail 'dashboard does not distinguish Tower credits from scheduled-slot production'
 
 jq -e '
   .__inputs[]
@@ -61,18 +75,26 @@ jq -e '
 ' "$dashboard" >/dev/null || fail 'dashboard contains a hard-coded Prometheus datasource UID'
 
 jq -e '
-  (.templating.list[] | select(.name == "pubkey")) as $pubkey
+  (.templating.list[] | select(.name == "cluster")) as $cluster
+  | (.templating.list[] | select(.name == "genesis")) as $genesis
+  | (.templating.list[] | select(.name == "pubkey")) as $pubkey
+  | (.templating.list[] | select(.name == "vote_account")) as $vote_account
   | (.templating.list[] | select(.name == "server")) as $server
-  | ($pubkey.hide == 0)
+  | ($cluster.includeAll | not)
+    and ($cluster.query.query == "label_values(nodemonitor_collectorUp,cluster)")
+    and ($genesis.includeAll | not)
+    and ($genesis.query.query | contains("nodemonitor_collectorUp{cluster=~\"$cluster\"}"))
+    and ($pubkey.hide == 0)
     and ($pubkey.label == "Validator / system")
     and ($pubkey.query.query | contains("label_join"))
-    and ($pubkey.query.query | contains("tlast_over_time(nodemonitor_status[24h])"))
+    and ($pubkey.query.query | contains("nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\"}"))
     and ($pubkey.regex | contains("?<text>"))
     and ($pubkey.regex | contains("?<value>"))
+    and ($vote_account.includeAll | not)
+    and ($vote_account.query.query | contains("nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\"}"))
     and ($server.hide == 2)
     and ($server.skipUrlSync == true)
-    and ($server.query.query | contains("nodemonitor_status{pubkey=\"$pubkey\"}"))
-    and ($server.query.query | contains("tlast_over_time"))
+    and ($server.query.query | contains("nodemonitor_collectorUp{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}"))
   and (.templating.list[] | select(.name == "mountpoint") | .multi and .includeAll)
   and (.templating.list[] | select(.name == "interface") | .multi and .includeAll)
 ' "$dashboard" >/dev/null || fail 'validator-host linking, mount-point or network-interface discovery is not configured correctly'
@@ -94,12 +116,12 @@ jq -e '
   any(.panels[];
     .id == 160
     and .type == "state-timeline"
-    and .targets[0].expr == "nodemonitor_version{pubkey=\"$pubkey\"}"
+    and .targets[0].expr == "nodemonitor_version{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}"
   )
   and any(.panels[];
     .id == 161
     and .type == "state-timeline"
-    and .targets[0].expr == "nodemonitor_status{pubkey=\"$pubkey\"}"
+    and .targets[0].expr == "nodemonitor_status{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}"
   )
 ' "$dashboard" >/dev/null || fail 'aligned software-version or validator-health timeline is missing'
 
