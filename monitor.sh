@@ -552,7 +552,7 @@ fields+=",productionDataOk=${batch_ok}i,activatedStake=${activated_stake},versio
 if ((batch_ok)); then
   fields+=",leaderSlots=${leader_slots}i,skippedSlots=${skipped_slots}i,pctSkipped=${pct_skipped},pctTotSkipped=${pct_total_skipped},pctSkippedDelta=${pct_skipped_delta}"
 fi
-fields+=",pctTotDelinquent=${pct_total_delinquent},pctNewerVersions=0${price_field},openFiles=${open_files}i,validatorBalance=${identity_balance},validatorVoteBalance=${vote_balance},nodes=${nodes}i,epoch=${epoch}i,pctEpochElapsed=${pct_epoch_elapsed},epochEnds=${epoch_ends}i,tps=${transaction_count}i"
+fields+=",pctTotDelinquent=${pct_total_delinquent}${price_field},openFiles=${open_files}i,validatorBalance=${identity_balance},validatorVoteBalance=${vote_balance},nodes=${nodes}i,epoch=${epoch}i,pctEpochElapsed=${pct_epoch_elapsed},epochEnds=${epoch_ends}i,tps=${transaction_count}i"
 
 printf 'nodemonitor,cluster=%s,genesis=%s,consensus=%s,pubkey=%s,vote_account=%s,schema=2 %s %s\n' \
   "$(influx_tag "$cluster")" "$(influx_tag "$genesis_hash")" "$(influx_tag "$consensus")" "$(influx_tag "$identity_pubkey")" "$(influx_tag "$vote_account")" \

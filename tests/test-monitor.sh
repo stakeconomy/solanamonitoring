@@ -43,6 +43,7 @@ assert_contains "$output" 'pctEpochElapsed=4.17'
 [[ "$output" != *'credits='* ]] || fail 'Alpenglow must not emit Tower credits'
 [[ "$output" != *'validatorCreditsCurrent='* ]] || fail 'Alpenglow must not emit Tower epoch credits'
 [[ "$output" != *'pctVote='* ]] || fail 'Alpenglow must not emit Tower vote-credit efficiency'
+[[ "$output" != *'pctNewerVersions='* ]] || fail 'collector must not emit a hard-coded newer-version percentage'
 assert_contains "$output" 'tps=698637083708i'
 
 mainnet_output="$(
