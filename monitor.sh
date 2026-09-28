@@ -188,6 +188,19 @@ sol_amount() {
   awk -v lamports="$1" 'BEGIN { printf "%.9f", lamports / 1000000000 }'
 }
 
+influx_tag() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/,/\\,/g' -e 's/=/\\=/g' -e 's/ /\\ /g'
+}
+
+cluster_metadata_for_genesis() {
+  case "$1" in
+    5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp) printf '%s\t%s' 'mainnet-beta' 'tower' ;;
+    4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY) printf '%s\t%s' 'testnet' 'alpenglow' ;;
+    EtWTRABZaYq6iMfeYKouRu166VU2xqa1) printf '%s\t%s' 'devnet' 'unknown' ;;
+    *) printf '%s\t%s' 'custom' 'unknown' ;;
+  esac
+}
+
 load_performance_samples() {
   local endpoint="$1" response summary remote_genesis fallback_slots fallback_seconds
   local payload
@@ -351,10 +364,12 @@ batch_payload="$(jq -cn --arg identity "$identity_pubkey" --arg vote "$vote_acco
 ]')"
 
 batch_response='[]'
+batch_ok=0
 if ! batch_candidate="$(rpc_call "$batch_payload" 2>/dev/null)" || ! jq -e 'type == "array"' >/dev/null 2>&1 <<<"$batch_candidate"; then
   printf 'monitor: supplemental JSON-RPC batch failed; emitting validator status with zeroed supplemental fields\n' >&2
 else
   batch_response="$batch_candidate"
+  batch_ok=1
 fi
 
 batch_summary="$(jq -c --arg identity "$identity_pubkey" '
@@ -423,6 +438,7 @@ sample_seconds="$(jq -r '.sampleSeconds' <<<"$batch_summary")"
 identity_balance_lamports="$(jq -r '.identityBalance' <<<"$batch_summary")"
 vote_balance_lamports="$(jq -r '.voteBalance' <<<"$batch_summary")"
 genesis_hash="$(jq -r '.genesisHash' <<<"$batch_summary")"
+IFS=$'\t' read -r cluster consensus <<<"$(cluster_metadata_for_genesis "$genesis_hash")"
 
 # Some validator builds expose getRecentPerformanceSamples but don't populate
 # their local PerfSamples column. Prefer the Solana user's configured CLI RPC
@@ -518,8 +534,17 @@ activated_stake="$(sol_amount "$activated_stake_lamports")"
 identity_balance="$(sol_amount "$identity_balance_lamports")"
 vote_balance="$(sol_amount "$vote_balance_lamports")"
 
-printf 'nodemonitor,pubkey=%s status=%si,rootSlot=%si,lastVote=%si,credits=%si,activatedStake=%s,version=%si,commission=%si,leaderSlots=%si,skippedSlots=%si,pctSkipped=%s,pctTotSkipped=%s,pctSkippedDelta=%s,pctTotDelinquent=%s,pctNewerVersions=0%s,openFiles=%si,validatorBalance=%s,validatorVoteBalance=%s,nodes=%si,epoch=%si,pctEpochElapsed=%s,validatorCreditsCurrent=%si,epochEnds=%si,pctVote=%s,tps=%si %s\n' \
-  "$identity_pubkey" "$status" "$root_slot" "$last_vote" "$credits" "$activated_stake" "$version_number" "$commission" \
-  "$leader_slots" "$skipped_slots" "$pct_skipped" "$pct_total_skipped" "$pct_skipped_delta" "$pct_total_delinquent" \
-  "$price_field" "$open_files" "$identity_balance" "$vote_balance" "$nodes" "$epoch" "$pct_epoch_elapsed" \
-  "$current_credits" "$epoch_ends" "$pct_vote" "$transaction_count" "$now"
+fields="collectorUp=1i,genesisMatch=1i,status=${status}i,rootSlot=${root_slot}i,lastVote=${last_vote}i"
+if [[ "$consensus" == 'tower' ]]; then
+  fields+=",credits=${credits}i,validatorCreditsCurrent=${current_credits}i,pctVote=${pct_vote}"
+  fields+=",legacyVoteCreditsTotal=${credits}i,legacyVoteCreditsEpoch=${current_credits}i,legacyVoteCreditEfficiencyPct=${pct_vote}"
+fi
+fields+=",productionDataOk=${batch_ok}i,activatedStake=${activated_stake},version=${version_number}i,commission=${commission}i"
+if ((batch_ok)); then
+  fields+=",leaderSlots=${leader_slots}i,skippedSlots=${skipped_slots}i,pctSkipped=${pct_skipped},pctTotSkipped=${pct_total_skipped},pctSkippedDelta=${pct_skipped_delta}"
+fi
+fields+=",pctTotDelinquent=${pct_total_delinquent},pctNewerVersions=0${price_field},openFiles=${open_files}i,validatorBalance=${identity_balance},validatorVoteBalance=${vote_balance},nodes=${nodes}i,epoch=${epoch}i,pctEpochElapsed=${pct_epoch_elapsed},epochEnds=${epoch_ends}i,tps=${transaction_count}i"
+
+printf 'nodemonitor,cluster=%s,genesis=%s,consensus=%s,pubkey=%s,vote_account=%s,schema=2 %s %s\n' \
+  "$(influx_tag "$cluster")" "$(influx_tag "$genesis_hash")" "$(influx_tag "$consensus")" "$(influx_tag "$identity_pubkey")" "$(influx_tag "$vote_account")" \
+  "$fields" "$now"

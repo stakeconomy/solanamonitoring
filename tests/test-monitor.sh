@@ -22,7 +22,9 @@ output="$(
 )"
 
 [[ "$(wc -l <<<"$output")" -eq 1 ]] || fail 'collector must emit exactly one stdout line'
-assert_contains "$output" "nodemonitor,pubkey=$identity "
+assert_contains "$output" "nodemonitor,cluster=testnet,genesis=4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY,consensus=alpenglow,pubkey=$identity,vote_account=2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3,schema=2 "
+assert_contains "$output" 'collectorUp=1i'
+assert_contains "$output" 'genesisMatch=1i'
 assert_contains "$output" 'status=0i'
 assert_contains "$output" 'rootSlot=437726128i'
 assert_contains "$output" 'lastVote=437726159i'
@@ -38,9 +40,20 @@ assert_contains "$output" 'validatorVoteBalance=38708.561305920'
 assert_contains "$output" 'nodes=2i'
 assert_contains "$output" 'epoch=1026i'
 assert_contains "$output" 'pctEpochElapsed=4.17'
-assert_contains "$output" 'validatorCreditsCurrent=282326i'
-assert_contains "$output" 'pctVote=1568.48'
+[[ "$output" != *'credits='* ]] || fail 'Alpenglow must not emit Tower credits'
+[[ "$output" != *'validatorCreditsCurrent='* ]] || fail 'Alpenglow must not emit Tower epoch credits'
+[[ "$output" != *'pctVote='* ]] || fail 'Alpenglow must not emit Tower vote-credit efficiency'
 assert_contains "$output" 'tps=698637083708i'
+
+mainnet_output="$(
+  MOCK_MAINNET=1 CURL_BIN="$mock_curl" \
+  "$repo_dir/monitor.sh" --identity "$identity" --rpc-url http://mock-rpc.invalid
+)"
+assert_contains "$mainnet_output" 'cluster=mainnet-beta'
+assert_contains "$mainnet_output" 'consensus=tower'
+assert_contains "$mainnet_output" 'legacyVoteCreditsTotal=2336223624i'
+assert_contains "$mainnet_output" 'legacyVoteCreditsEpoch=282326i'
+assert_contains "$mainnet_output" 'legacyVoteCreditEfficiencyPct=1568.48'
 
 set +e
 failure_output="$(
@@ -68,8 +81,9 @@ batch_output="$(
   "$repo_dir/monitor.sh" --identity "$identity" --rpc-url http://mock-rpc.invalid 2>/dev/null
 )"
 assert_contains "$batch_output" 'status=0i'
-assert_contains "$batch_output" 'leaderSlots=0i'
-assert_contains "$batch_output" 'nodes=0i'
+assert_contains "$batch_output" 'productionDataOk=0i'
+[[ "$batch_output" != *'leaderSlots='* ]] || fail 'failed production RPC must not emit zero scheduled-slot production'
+[[ "$batch_output" != *'skippedSlots='* ]] || fail 'failed production RPC must not emit zero scheduled-slot absence'
 
 fallback_output="$(
   MOCK_EMPTY_PERFORMANCE=1 CURL_BIN="$mock_curl" \
