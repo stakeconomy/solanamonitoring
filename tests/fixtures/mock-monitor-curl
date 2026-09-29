@@ -74,12 +74,17 @@ if [[ "$(jq -r '.method // ""' <<<"$payload")" == "getVoteAccounts" ]]; then
     printf 'expanded unstaked delinquent query is not allowed\n' >&2
     exit 22
   fi
+  vote_filter='.'
   if [[ "${MOCK_MULTIPLE_VOTES:-0}" == 1 ]]; then
-    jq '.result.current += [(.result.current[0] | .votePubkey = "SecondVote1111111111111111111111111111111111")]' \
-      "$fixture_dir/monitor-vote-accounts.json"
-  else
-    exec jq . "$fixture_dir/monitor-vote-accounts.json"
+    vote_filter+=' | .result.current += [(.result.current[0] | .votePubkey = "SecondVote1111111111111111111111111111111111")]'
   fi
+  if [[ "${MOCK_ALPENGLOW_EPOCH_CREDIT_MARKER:-0}" == 1 ]]; then
+    vote_filter+=' | .result.current[0].epochCredits[-1] = ["migration", 2336223624, 2335941298]'
+  fi
+  if [[ "${MOCK_INVALID_ALPENGLOW_EPOCH_CREDIT:-0}" == 1 ]]; then
+    vote_filter+=' | .result.current[0].epochCredits[-1] = [1026, 2336223624]'
+  fi
+  exec jq "$vote_filter" "$fixture_dir/monitor-vote-accounts.json"
 fi
 
 exit 22

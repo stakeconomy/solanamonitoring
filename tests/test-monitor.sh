@@ -28,6 +28,7 @@ assert_contains "$output" 'genesisMatch=1i'
 assert_contains "$output" 'status=0i'
 assert_contains "$output" 'rootSlot=437726128i'
 assert_contains "$output" 'lastVote=437726159i'
+assert_contains "$output" 'finalizedSlot=437726180i'
 assert_contains "$output" 'activatedStake=1756474.290046330'
 assert_contains "$output" 'version=430i'
 assert_contains "$output" 'leaderSlots=84i'
@@ -40,11 +41,26 @@ assert_contains "$output" 'validatorVoteBalance=38708.561305920'
 assert_contains "$output" 'nodes=2i'
 assert_contains "$output" 'epoch=1026i'
 assert_contains "$output" 'pctEpochElapsed=4.17'
+assert_contains "$output" 'alpenglowRewardAccountingLamports=282326i'
 [[ "$output" != *'credits='* ]] || fail 'Alpenglow must not emit Tower credits'
 [[ "$output" != *'validatorCreditsCurrent='* ]] || fail 'Alpenglow must not emit Tower epoch credits'
 [[ "$output" != *'pctVote='* ]] || fail 'Alpenglow must not emit Tower vote-credit efficiency'
 [[ "$output" != *'pctNewerVersions='* ]] || fail 'collector must not emit a hard-coded newer-version percentage'
 assert_contains "$output" 'tps=698637083708i'
+
+migration_marker_output="$(
+  MOCK_ALPENGLOW_EPOCH_CREDIT_MARKER=1 CURL_BIN="$mock_curl" \
+  "$repo_dir/monitor.sh" --identity "$identity" --rpc-url http://mock-rpc.invalid
+)"
+[[ "$migration_marker_output" != *'alpenglowRewardAccountingLamports='* ]] || \
+  fail 'Alpenglow migration-marker epochCredits must not emit reward accounting'
+
+invalid_tuple_output="$(
+  MOCK_INVALID_ALPENGLOW_EPOCH_CREDIT=1 CURL_BIN="$mock_curl" \
+  "$repo_dir/monitor.sh" --identity "$identity" --rpc-url http://mock-rpc.invalid
+)"
+[[ "$invalid_tuple_output" != *'alpenglowRewardAccountingLamports='* ]] || \
+  fail 'invalid Alpenglow epochCredits must not emit reward accounting'
 
 mainnet_output="$(
   MOCK_MAINNET=1 CURL_BIN="$mock_curl" \

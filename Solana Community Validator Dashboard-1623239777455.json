@@ -49,38 +49,159 @@
     },
     {
       "datasource": {
-        "type": "datasource",
-        "uid": "grafana"
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Finalized slot minus last vote. Lower is fresher; this is a one-minute collector health signal, not certificate finality.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 2,
+          "mappings": [],
+          "noValue": "No recent data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 8
+              },
+              {
+                "color": "red",
+                "value": 32
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
       },
       "gridPos": {
-        "h": 4,
-        "w": 6,
+        "h": 2,
+        "w": 3,
         "x": 0,
         "y": 1
       },
-      "id": 120,
+      "id": 166,
+      "interval": "1m",
       "options": {
-        "code": {
-          "language": "plaintext",
-          "showLineNumbers": false,
-          "showMiniMap": false
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "content": "# Stakeconomy Community Monitoring Dashboard\nChoose a **Validator identity** for Solana metrics and a **System host** for operating-system metrics. These selectors are independent so the dashboard also supports system-only hosts. Mount-point and network-interface selectors adapt to each host.\n\n*Provided by [Stakeconomy.com](https://stakeconomy.com) · [Monitoring repository](https://github.com/stakeconomy/solanamonitoring)*",
-        "mode": "markdown"
+        "textMode": "auto"
       },
       "pluginVersion": "9.2.3",
       "targets": [
         {
           "datasource": {
-            "type": "datasource",
-            "uid": "grafana"
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
           },
-          "queryType": "randomWalk",
-          "refId": "A"
+          "editorMode": "code",
+          "expr": "nodemonitor_finalizedSlot{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} - nodemonitor_lastVote{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
+          "hide": false,
+          "legendFormat": "Vote freshness",
+          "range": false,
+          "refId": "A",
+          "instant": true
         }
       ],
+      "title": "Vote freshness",
       "transparent": true,
-      "type": "text"
+      "type": "stat",
+      "maxDataPoints": 1
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Finalized slot minus root slot. Lower is fresher; this is a one-minute collector health signal, not certificate finality.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 2,
+          "mappings": [],
+          "noValue": "No recent data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 8
+              },
+              {
+                "color": "red",
+                "value": 32
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 3,
+        "x": 3,
+        "y": 1
+      },
+      "id": 167,
+      "interval": "1m",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "9.2.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "nodemonitor_finalizedSlot{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} - nodemonitor_rootSlot{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
+          "hide": false,
+          "legendFormat": "Root freshness",
+          "range": false,
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "title": "Root freshness",
+      "transparent": true,
+      "type": "stat",
+      "maxDataPoints": 1
     },
     {
       "datasource": {
@@ -474,35 +595,35 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "description": "Current percentage of activated cluster stake on delinquent vote accounts.",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "decimals": 2,
-          "displayName": "Skip rate",
           "mappings": [],
-          "max": 100,
-          "min": 0,
           "noValue": "No recent data",
           "thresholds": {
-            "mode": "percentage",
+            "mode": "absolute",
             "steps": [
               {
                 "color": "green",
                 "value": null
               },
               {
-                "color": "#EAB839",
-                "value": 25
+                "color": "yellow",
+                "value": 5
               },
               {
                 "color": "red",
-                "value": 50
+                "value": 15
               }
             ]
           },
-          "unit": "percent"
+          "unit": "percent",
+          "min": 0,
+          "max": 100
         },
         "overrides": []
       },
@@ -512,12 +633,13 @@
         "x": 16,
         "y": 1
       },
-      "id": 62,
+      "id": 164,
+      "interval": "1m",
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
-        "orientation": "auto",
+        "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -525,8 +647,7 @@
           "fields": "",
           "values": false
         },
-        "text": {},
-        "textMode": "value"
+        "textMode": "auto"
       },
       "pluginVersion": "9.2.3",
       "targets": [
@@ -536,14 +657,15 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_pctSkipped{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
-          "legendFormat": "__auto",
+          "expr": "nodemonitor_pctTotDelinquent{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
+          "hide": false,
+          "legendFormat": "Delinquent stake",
           "range": false,
           "refId": "A",
           "instant": true
         }
       ],
-      "title": "Skiprate",
+      "title": "Cluster delinquent stake",
       "transparent": true,
       "type": "stat",
       "maxDataPoints": 1
@@ -758,6 +880,41 @@
       "type": "stat",
       "description": "Validators that sent a status sample during the last 10 minutes.",
       "maxDataPoints": 1
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 6,
+        "x": 0,
+        "y": 3
+      },
+      "id": 120,
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "# Stakeconomy Community Monitoring Dashboard\nThe upper cards are validator health first: freshness uses the finalized slot; scheduled-slot production comes from `getBlockProduction`. Epoch and account cards are secondary.\n\n*Provided by [Stakeconomy.com](https://stakeeconomy.com) · [Monitoring repository](https://github.com/stakeeconomy/solanamonitoring)*",
+        "mode": "markdown"
+      },
+      "pluginVersion": "9.2.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "datasource",
+            "uid": "grafana"
+          },
+          "queryType": "randomWalk",
+          "refId": "A"
+        }
+      ],
+      "transparent": true,
+      "type": "text"
     },
     {
       "datasource": {
@@ -2167,29 +2324,31 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Current percentage of activated cluster stake on delinquent vote accounts.",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "decimals": 2,
+          "displayName": "Skip rate",
           "mappings": [],
+          "max": 100,
+          "min": 0,
           "noValue": "No recent data",
           "thresholds": {
-            "mode": "absolute",
+            "mode": "percentage",
             "steps": [
               {
                 "color": "green",
                 "value": null
               },
               {
-                "color": "yellow",
-                "value": 5
+                "color": "#EAB839",
+                "value": 25
               },
               {
                 "color": "red",
-                "value": 15
+                "value": 50
               }
             ]
           },
@@ -2203,13 +2362,12 @@
         "x": 12,
         "y": 8
       },
-      "id": 164,
-      "interval": "1m",
+      "id": 62,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
-        "orientation": "horizontal",
+        "orientation": "auto",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -2217,7 +2375,8 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "text": {},
+        "textMode": "value"
       },
       "pluginVersion": "9.2.3",
       "targets": [
@@ -2227,15 +2386,14 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_pctTotDelinquent{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
-          "hide": false,
-          "legendFormat": "Cluster delinquent stake",
+          "expr": "nodemonitor_pctSkipped{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
+          "legendFormat": "__auto",
           "range": false,
           "refId": "A",
           "instant": true
         }
       ],
-      "title": "Cluster delinquent stake",
+      "title": "Skiprate",
       "transparent": true,
       "type": "stat",
       "maxDataPoints": 1
@@ -2245,7 +2403,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Validator skip rate minus cluster skip rate, in percentage points.",
+      "description": "Post-migration epochCredits tuple delta shown in SOL; reward accounting only, not performance.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2260,18 +2418,12 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 3
               }
             ]
           },
-          "unit": "percent"
+          "unit": "SOL",
+          "min": 0,
+          "max": null
         },
         "overrides": []
       },
@@ -2305,15 +2457,15 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_pctSkipped{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} - nodemonitor_pctTotSkipped{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
+          "expr": "nodemonitor_alpenglowRewardAccountingLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} / 1e9",
           "hide": false,
-          "legendFormat": "Skip-rate gap",
+          "legendFormat": "Alpenglow reward accounting",
           "range": false,
           "refId": "A",
           "instant": true
         }
       ],
-      "title": "Skip-rate gap",
+      "title": "Alpenglow reward accounting",
       "transparent": true,
       "type": "stat",
       "maxDataPoints": 1
@@ -3168,16 +3320,16 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "rate(nodemonitor_credits{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])",
-          "legendFormat": "Credits rate",
+          "expr": "rate(nodemonitor_credits{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"tower\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])",
+          "legendFormat": "Tower vote-credit rate",
           "range": true,
           "refId": "A",
           "instant": false
         }
       ],
-      "title": "My Credits",
+      "title": "Tower vote-credit rate",
       "type": "timeseries",
-      "description": "Five-minute rate of earned vote credits.",
+      "description": "Five-minute rate of Tower vote credits; it is intentionally unavailable on Alpenglow clusters.",
       "maxDataPoints": 1200
     },
     {
@@ -3270,7 +3422,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_pctVote{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}/16",
+          "expr": "nodemonitor_pctVote{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"tower\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}/16",
           "legendFormat": "Tower vote-credit efficiency",
           "range": true,
           "refId": "A",
@@ -3369,17 +3521,18 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_validatorCreditsCurrent{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
-          "legendFormat": "Epoch credits",
+          "expr": "nodemonitor_validatorCreditsCurrent{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"tower\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
+          "legendFormat": "Tower epoch vote credits",
           "range": true,
           "refId": "A",
           "instant": false
         }
       ],
-      "title": "Credits Current Epoch",
+      "title": "Tower epoch vote credits",
       "type": "timeseries",
       "interval": "$inter",
-      "maxDataPoints": 1200
+      "maxDataPoints": 1200,
+      "description": "Tower-only epoch vote-credit accounting. It is intentionally unavailable on Alpenglow clusters."
     },
     {
       "datasource": {

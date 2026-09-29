@@ -3,6 +3,14 @@ def datasource:
 
 def scope_nodemonitor:
   gsub(
+    "\\{consensus=\\\"tower\\\",pubkey=\\\"\\$pubkey\\\"\\}";
+    "{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"tower\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}"
+  )
+  | gsub(
+    "\\{consensus=\\\"alpenglow\\\",pubkey=\\\"\\$pubkey\\\"\\}";
+    "{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}"
+  )
+  | gsub(
     "\\{pubkey=\\\"\\$pubkey\\\"\\}";
     "{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}"
   );
@@ -248,6 +256,7 @@ def interface_filter:
   ) as $new_interval_var
 | .templating.list = [$new_cluster_var, $new_genesis_var, $new_pubkey_var, $new_vote_account_var, $new_server_var, $mountpoint_var, $interface_var, $new_interval_var]
 | (any(.panels[]; .id == 160)) as $layout_done
+| (any(.panels[]; .id == 166)) as $health_first_done
 | (any(.panels[]; .id == 54 and .targets[0].instant == true and .targets[0].range == false)) as $query_optimization_done
 | (($pubkey_var.label == "Validator / system") and ($server_var.hide == 2)) as $selector_linked
 | .panels |= map(
@@ -263,7 +272,8 @@ def interface_filter:
     if .id == 115 then
       .title = "Overview — validator $pubkey / host $server"
     elif .id == 120 then
-      .options.content = "# Stakeconomy Community Monitoring Dashboard\nChoose a **Validator identity** for Solana metrics and a **System host** for operating-system metrics. These selectors are independent so the dashboard also supports system-only hosts. Mount-point and network-interface selectors adapt to each host.\n\n*Provided by [Stakeconomy.com](https://stakeconomy.com) · [Monitoring repository](https://github.com/stakeconomy/solanamonitoring)*"
+      .gridPos = {"h": 2, "w": 6, "x": 0, "y": 3}
+      | .options.content = "# Stakeconomy Community Monitoring Dashboard\nThe upper cards are validator health first: freshness uses the finalized slot; scheduled-slot production comes from `getBlockProduction`. Epoch and account cards are secondary.\n\n*Provided by [Stakeconomy.com](https://stakeeconomy.com) · [Monitoring repository](https://github.com/stakeeconomy/solanamonitoring)*"
     elif .id == 97 then
       .targets[0].expr = "nodemonitor_pctEpochElapsed{pubkey=\"$pubkey\"}"
     elif .id == 124 then
@@ -287,7 +297,8 @@ def interface_filter:
       | .fieldConfig.defaults.displayName = "Scheduled slots absent"
       | .targets[0].expr = "nodemonitor_skippedSlots{pubkey=\"$pubkey\"}"
     elif .id == 62 then
-      .fieldConfig.defaults.displayName = "Skip rate"
+      .gridPos = {"h": 3, "w": 6, "x": 12, "y": 8}
+      | .fieldConfig.defaults.displayName = "Skip rate"
       | .targets[0].expr = "nodemonitor_pctSkipped{pubkey=\"$pubkey\"}"
     elif .id == 43 then
       .targets[0].expr = "nodemonitor_activatedStake{pubkey=\"$pubkey\"}"
@@ -355,9 +366,10 @@ def interface_filter:
       | .targets[0].expr = "nodemonitor_leaderSlots{pubkey=\"$pubkey\"}"
       | .targets[1].expr = "nodemonitor_skippedSlots{pubkey=\"$pubkey\"}"
     elif .id == 61 then
-      .targets[0].expr = "rate(nodemonitor_credits{pubkey=\"$pubkey\"}[5m])"
-      | .targets[0].legendFormat = "Credits rate"
-      | .description = "Five-minute rate of earned vote credits."
+      .title = "Tower vote-credit rate"
+      | .targets[0].expr = "rate(nodemonitor_credits{consensus=\"tower\",pubkey=\"$pubkey\"}[5m])"
+      | .targets[0].legendFormat = "Tower vote-credit rate"
+      | .description = "Five-minute rate of Tower vote credits; it is intentionally unavailable on Alpenglow clusters."
     elif .id == 126 then
       .title = "Tower vote-credit efficiency"
       | .description = "Tower-only credit-efficiency estimate. It is intentionally unavailable on Alpenglow clusters."
@@ -365,13 +377,16 @@ def interface_filter:
       | .fieldConfig.defaults.unit = "percent"
       | .fieldConfig.defaults.min = 0
       | .fieldConfig.defaults.max = 100
-      | .targets[0].expr = "nodemonitor_pctVote{pubkey=\"$pubkey\"}/16"
+      | .targets[0].expr = "nodemonitor_pctVote{consensus=\"tower\",pubkey=\"$pubkey\"}/16"
     elif .id == 121 then
-      .targets[0].legendFormat = "Epoch credits"
-      | .targets[0].expr = "nodemonitor_validatorCreditsCurrent{pubkey=\"$pubkey\"}"
-    elif .id == 76 then
-      .title = "Cluster delinquent stake"
-      | .description = "Percentage of total activated cluster stake currently assigned to delinquent vote accounts."
+      .title = "Tower epoch vote credits"
+      | .description = "Tower-only epoch vote-credit accounting. It is intentionally unavailable on Alpenglow clusters."
+      | .targets[0].legendFormat = "Tower epoch vote credits"
+      | .targets[0].expr = "nodemonitor_validatorCreditsCurrent{consensus=\"tower\",pubkey=\"$pubkey\"}"
+    elif .id == 164 then
+      .gridPos = {"h": 2, "w": 2, "x": 16, "y": 1}
+      | .title = "Cluster delinquent stake"
+      | .description = "Current percentage of activated cluster stake on delinquent vote accounts."
       | .targets[0].legendFormat = "Delinquent stake"
       | .targets[0].expr = "nodemonitor_pctTotDelinquent{pubkey=\"$pubkey\"}"
       | .fieldConfig.defaults.min = 0
@@ -381,6 +396,16 @@ def interface_filter:
           {"color": "yellow", "value": 5},
           {"color": "red", "value": 15}
         ]
+    elif .id == 165 then
+      .gridPos = {"h": 3, "w": 6, "x": 18, "y": 8}
+      | .title = "Alpenglow reward accounting"
+      | .description = "Post-migration epochCredits tuple delta shown in SOL; reward accounting only, not performance."
+      | .targets[0].legendFormat = "Alpenglow reward accounting"
+      | .targets[0].expr = "nodemonitor_alpenglowRewardAccountingLamports{consensus=\"alpenglow\",pubkey=\"$pubkey\"} / 1e9"
+      | .fieldConfig.defaults.unit = "SOL"
+      | .fieldConfig.defaults.min = 0
+      | .fieldConfig.defaults.max = null
+      | .fieldConfig.defaults.thresholds.steps = [{"color": "green", "value": null}]
     elif .id == 4 then
       .title = "Identity-account balance"
       | .description = "SOL held by the selected validator identity account."
@@ -580,6 +605,30 @@ def interface_filter:
           "3": {"color": "dark-red", "text": "Delinquent"},
           "4": {"color": "red", "text": "Configuration/RPC unavailable"}
         }
+      )
+    ]
+  end
+| if $health_first_done then
+    .
+  else
+    .panels += [
+      (
+        stat_panel(
+          166; "Vote freshness";
+          "Finalized slot minus last vote. Lower is fresher; this is a one-minute collector health signal, not certificate finality.";
+          "nodemonitor_finalizedSlot{pubkey=\"$pubkey\"} - nodemonitor_lastVote{pubkey=\"$pubkey\"}";
+          "none"; 0;
+          [{"color": "green", "value": null}, {"color": "yellow", "value": 8}, {"color": "red", "value": 32}]
+        ) | .gridPos = {"h": 2, "w": 3, "x": 0, "y": 1}
+      ),
+      (
+        stat_panel(
+          167; "Root freshness";
+          "Finalized slot minus root slot. Lower is fresher; this is a one-minute collector health signal, not certificate finality.";
+          "nodemonitor_finalizedSlot{pubkey=\"$pubkey\"} - nodemonitor_rootSlot{pubkey=\"$pubkey\"}";
+          "none"; 3;
+          [{"color": "green", "value": null}, {"color": "yellow", "value": 8}, {"color": "red", "value": 32}]
+        ) | .gridPos = {"h": 2, "w": 3, "x": 3, "y": 1}
       )
     ]
   end

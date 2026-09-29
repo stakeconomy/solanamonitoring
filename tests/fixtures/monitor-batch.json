@@ -70,6 +70,11 @@
   },
   {
     "jsonrpc": "2.0",
+    "result": 437726180,
+    "id": "finalizedSlot"
+  },
+  {
+    "jsonrpc": "2.0",
     "result": {
       "block": {"slot": 437726000, "blockId": [1, 2, 3]},
       "signature": {"signature": [1], "bitmap": [1]}

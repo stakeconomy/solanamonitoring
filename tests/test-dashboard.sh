@@ -209,6 +209,38 @@ if jq -r '.. | objects | .expr? // empty' "$dashboard" | grep -Eq 'host[[:space:
   fail 'single-value server variable still uses a regex matcher'
 fi
 
+jq -e '
+  any(.panels[];
+    .id == 166
+    and .title == "Vote freshness"
+    and .gridPos.y == 1
+    and (.description | contains("Finalized slot minus last vote"))
+    and .targets[0].expr == "nodemonitor_finalizedSlot{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} - nodemonitor_lastVote{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}"
+  )
+  and any(.panels[];
+    .id == 167
+    and .title == "Root freshness"
+    and .gridPos.y == 1
+    and (.description | contains("Finalized slot minus root slot"))
+    and .targets[0].expr == "nodemonitor_finalizedSlot{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} - nodemonitor_rootSlot{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}"
+  )
+  and all(.panels[] | select(.id == 54 or .id == 99 or .id == 100 or .id == 164 or .id == 43 or .id == 97); .gridPos.y == 1)
+' "$dashboard" >/dev/null || fail 'dashboard upper area is not health-first'
+
+jq -e '
+  any(.panels[];
+    .id == 165
+    and .title == "Alpenglow reward accounting"
+    and (.description | contains("reward accounting only, not performance"))
+    and .fieldConfig.defaults.unit == "SOL"
+    and .targets[0].expr == "nodemonitor_alpenglowRewardAccountingLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} / 1e9"
+  )
+  and all(.panels[] | select(.id == 61 or .id == 121 or .id == 126);
+    (.title | contains("Tower")) and (.targets[0].expr | contains("consensus=\"tower\""))
+  )
+  and ([.panels[] | select((.title // "") | test("Votor participation"; "i"))] | length == 0)
+' "$dashboard" >/dev/null || fail 'dashboard does not isolate Tower credits or label Alpenglow reward accounting correctly'
+
 jq -f "$transform" "$dashboard" >"$transformed"
 cmp -s "$dashboard" "$transformed" || fail 'dashboard optimization is not idempotent'
 

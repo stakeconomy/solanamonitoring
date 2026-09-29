@@ -341,6 +341,7 @@ if ! vote_summary="$(jq -er --arg vote "$vote_account" '
       lastVote: ($v.lastVote // 0),
       credits: ($v.epochCredits[-1][1] // 0),
       previousCredits: ($v.epochCredits[-1][2] // 0),
+      latestEpochCredit: ($v.epochCredits[-1] // null),
       activatedStake: ($v.activatedStake // 0),
       commission: ($v.commission // 0),
       totalStake: (([.result.current[].activatedStake, .result.delinquent[].activatedStake] | add) // 0),
@@ -361,6 +362,7 @@ batch_payload="$(jq -cn --arg identity "$identity_pubkey" --arg vote "$vote_acco
   {jsonrpc:"2.0",id:"identityBalance",method:"getBalance",params:[$identity,{commitment:"confirmed"}]},
   {jsonrpc:"2.0",id:"voteBalance",method:"getBalance",params:[$vote,{commitment:"confirmed"}]},
   {jsonrpc:"2.0",id:"genesisHash",method:"getGenesisHash"},
+  {jsonrpc:"2.0",id:"finalizedSlot",method:"getSlot",params:[{commitment:"finalized"}]},
   {jsonrpc:"2.0",id:"agGenesisCert",method:"getAgGenesisCert"}
 ]')"
 
@@ -399,6 +401,7 @@ batch_summary="$(jq -c --arg identity "$identity_pubkey" '
     identityBalance: (response("identityBalance").result.value // 0),
     voteBalance: (response("voteBalance").result.value // 0),
     genesisHash: (response("genesisHash").result // ""),
+    finalizedSlot: (response("finalizedSlot").result // null),
     consensus: (
       if $agGenesisCert.error != null then "unknown"
       elif $agGenesisCert.result == null then "tower"
@@ -413,6 +416,16 @@ root_slot="$(jq -r '.rootSlot' <<<"$vote_summary")"
 last_vote="$(jq -r '.lastVote' <<<"$vote_summary")"
 credits="$(jq -r '.credits' <<<"$vote_summary")"
 previous_credits="$(jq -r '.previousCredits' <<<"$vote_summary")"
+alpenglow_reward_lamports="$(jq -r '
+  .latestEpochCredit as $credit |
+  if ($credit | type) == "array"
+     and ($credit | length) == 3
+     and ($credit | all(.[]; type == "number" and . >= 0 and floor == .))
+     and $credit[1] >= $credit[2]
+  then ($credit[1] - $credit[2])
+  else empty
+  end
+' <<<"$vote_summary")"
 activated_stake_lamports="$(jq -r '.activatedStake' <<<"$vote_summary")"
 commission="$(jq -r '.commission' <<<"$vote_summary")"
 total_stake="$(jq -r '.totalStake' <<<"$vote_summary")"
@@ -446,6 +459,7 @@ sample_seconds="$(jq -r '.sampleSeconds' <<<"$batch_summary")"
 identity_balance_lamports="$(jq -r '.identityBalance' <<<"$batch_summary")"
 vote_balance_lamports="$(jq -r '.voteBalance' <<<"$batch_summary")"
 genesis_hash="$(jq -r '.genesisHash' <<<"$batch_summary")"
+finalized_slot="$(jq -r '.finalizedSlot // empty' <<<"$batch_summary")"
 IFS=$'\t' read -r cluster _ <<<"$(cluster_metadata_for_genesis "$genesis_hash")"
 consensus="$(jq -r '.consensus' <<<"$batch_summary")"
 
@@ -547,9 +561,14 @@ fields="collectorUp=1i,genesisMatch=1i,status=${status}i,rootSlot=${root_slot}i,
 if [[ "$consensus" == 'tower' ]]; then
   fields+=",credits=${credits}i,validatorCreditsCurrent=${current_credits}i,pctVote=${pct_vote}"
   fields+=",legacyVoteCreditsTotal=${credits}i,legacyVoteCreditsEpoch=${current_credits}i,legacyVoteCreditEfficiencyPct=${pct_vote}"
+elif [[ "$consensus" == 'alpenglow' && "$alpenglow_reward_lamports" =~ ^[0-9]+$ ]]; then
+  fields+=",alpenglowRewardAccountingLamports=${alpenglow_reward_lamports}i"
 fi
 fields+=",productionDataOk=${batch_ok}i,activatedStake=${activated_stake},version=${version_number}i,commission=${commission}i"
 if ((batch_ok)); then
+  if [[ "$finalized_slot" =~ ^[0-9]+$ ]]; then
+    fields+=",finalizedSlot=${finalized_slot}i"
+  fi
   fields+=",leaderSlots=${leader_slots}i,skippedSlots=${skipped_slots}i,pctSkipped=${pct_skipped},pctTotSkipped=${pct_total_skipped},pctSkippedDelta=${pct_skipped_delta}"
 fi
 fields+=",pctTotDelinquent=${pct_total_delinquent}${price_field},openFiles=${open_files}i,validatorBalance=${identity_balance},validatorVoteBalance=${vote_balance},nodes=${nodes}i,epoch=${epoch}i,pctEpochElapsed=${pct_epoch_elapsed},epochEnds=${epoch_ends}i,tps=${transaction_count}i"

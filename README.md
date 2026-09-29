@@ -12,7 +12,7 @@ It is not a guide for installing a private Telegraf, time-series database, and G
 
 ## What is monitored
 
-Validator metrics are scoped by exact genesis, canonical cluster, identity, vote account, and detected consensus. They include status, root and vote slots, active stake, scheduled-slot production, commission, software version, epoch progress and ETA, cluster TPS, SOL price, identity/vote balances, cluster size, and delinquent stake. Tower vote-credit fields are emitted only when `getAgGenesisCert` reports Tower consensus; they are deliberately absent on Alpenglow.
+Validator metrics are scoped by exact genesis, canonical cluster, identity, vote account, and detected consensus. They include finalized-slot vote/root freshness, status, active stake, scheduled-slot production, commission, software version, epoch progress and ETA, cluster TPS, SOL price, identity/vote balances, cluster size, and delinquent stake. Tower vote-credit fields are emitted only when `getAgGenesisCert` reports Tower consensus. Alpenglow emits only a validated post-migration `epochCredits` tuple delta as `alpenglowRewardAccountingLamports`; the dashboard presents it as SOL reward accounting, never as performance.
 
 Host metrics include total CPU, IOWait, normalized load, memory, swap, relevant filesystem utilization, network traffic/errors, UDP errors, process states, TCP states, allocated file handles, and context switches.
 

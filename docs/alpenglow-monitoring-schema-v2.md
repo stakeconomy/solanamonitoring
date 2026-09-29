@@ -47,7 +47,9 @@ For `consensus=tower`, retain existing `credits`, `validatorCreditsCurrent`, and
 - `legacyVoteCreditsEpoch`
 - `legacyVoteCreditEfficiencyPct`
 
-For `consensus=alpenglow` or `unknown`, omit all six credit/efficiency fields. Missing data is deliberate; it must never be emitted as zero or rendered as zero efficiency.
+For `consensus=alpenglow` or `unknown`, omit all six Tower credit/efficiency fields. Missing Tower data is deliberate; it must never be emitted as zero or rendered as zero efficiency.
+
+For `consensus=alpenglow` only, emit `alpenglowRewardAccountingLamports` when the latest `epochCredits` tuple is a valid non-negative integer tuple `[epoch, total, previous]` with `total >= previous`. Its value is `total - previous` in lamports. Reject migration markers and malformed tuples rather than fabricating zeroes. Grafana may divide by `1e9` to display SOL, and must label it reward accounting rather than performance.
 
 ### Collector health
 

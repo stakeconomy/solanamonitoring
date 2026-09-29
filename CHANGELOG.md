@@ -6,7 +6,8 @@
 
 - Added schema-v2 `cluster`, `genesis`, `consensus`, `pubkey`, and `vote_account` tags, preventing shared-database mainnet/testnet collisions.
 - Detects Tower versus Alpenglow with `getAgGenesisCert`; Tower credit-efficiency fields are deliberately omitted for Alpenglow.
-- Adds collector and scheduled-slot-production provenance fields instead of fabricating zeroes after a failed supplemental RPC batch.
+- Emits `alpenglowRewardAccountingLamports` only for validated Alpenglow post-migration epoch-credit tuples; malformed or migration-marker tuples are omitted.
+- Adds finalized-slot freshness plus collector and scheduled-slot-production provenance fields instead of fabricating zeroes after a failed supplemental RPC batch.
 
 - Replaced repeated Solana CLI calls with batched JSON-RPC requests.
 - Added explicit RPC, identity, vote-account, timeout, performance-RPC, and slot-duration options.
