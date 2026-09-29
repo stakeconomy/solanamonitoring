@@ -17,6 +17,9 @@ fail() {
 
 jq -e . "$dashboard" >/dev/null || fail 'dashboard is not valid JSON'
 
+jq -e '.uid == "f2b2HcaGz25"' "$dashboard" >/dev/null \
+  || fail 'dashboard UID does not target the canonical production dashboard'
+
 jq -e '
   [.panels[].id] as $ids
   | ($ids | length) == ($ids | unique | length)
