@@ -83,6 +83,15 @@ if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$payload"; then
   if [[ "${MOCK_AG_CERT_NULL:-0}" == 1 ]]; then
     batch_filter+=' | map(if .id == "agGenesisCert" then .result = null else . end)'
   fi
+  if [[ -n "${MOCK_OBSERVED_STAGE:-}" ]]; then
+    case "$MOCK_OBSERVED_STAGE" in
+      1) observed_slot=100 ;;
+      2) observed_slot=110 ;;
+      3) observed_slot=120 ;;
+      *) exit 22 ;;
+    esac
+    batch_filter+=" | map(if .id == \"finalizedEpochInfo\" then .result.absoluteSlot = $observed_slot | .result.slotIndex = $observed_slot elif .id == \"finalizedSlot\" then .result = $observed_slot else . end)"
+  fi
   exec jq "$batch_filter" "$fixture_dir/monitor-batch.json"
 fi
 

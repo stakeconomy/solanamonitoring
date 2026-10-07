@@ -14,8 +14,10 @@ own_node_pubkey="$5"
 reference_accounts_json="$6"
 curl_bin="$7"
 rpc_timeout="$8"
-epoch_start_slot="$9"
-rate_samples="${10:-20}"
+schedule_slots_per_epoch="$9"
+schedule_first_normal_slot="${10:-}"
+schedule_warmup="${11:-}"
+rate_samples="${12:-20}"
 
 emit_unready() {
   local references="$1"
@@ -98,6 +100,25 @@ snapshot="$(jq -cer --argjson accounts "$accounts_json" '
 }
 
 observed_slot="$(jq -r '.slot' <<<"$snapshot")"
+epoch_start_slot=''
+if [[ "$schedule_slots_per_epoch" =~ ^[1-9][0-9]*$ &&
+      "$schedule_first_normal_slot" =~ ^[0-9]+$ &&
+      ( "$schedule_warmup" == true || "$schedule_warmup" == false ) &&
+      "$observed_slot" =~ ^[0-9]+$ ]]; then
+  # EpochSchedule is immutable network configuration. Derive the epoch start
+  # from the exact finalized account-snapshot slot instead of trusting a
+  # separately fetched, potentially stale getEpochInfo result.
+  if [[ "$schedule_warmup" == false ]]; then
+    epoch_start_slot=$((observed_slot / schedule_slots_per_epoch * schedule_slots_per_epoch))
+  elif ((observed_slot >= schedule_first_normal_slot)); then
+    epoch_start_slot=$((schedule_first_normal_slot +
+      ((observed_slot - schedule_first_normal_slot) / schedule_slots_per_epoch) * schedule_slots_per_epoch))
+  fi
+fi
+if [[ -z "$epoch_start_slot" ]]; then
+  emit_unready "$reference_count"
+  exit 0
+fi
 leader_payload="$(jq -cn --argjson start "$epoch_start_slot" '{jsonrpc:"2.0",id:"alpenglowObservedLeaders",method:"getLeaderSchedule",params:[$start,{commitment:"finalized"}]}' )"
 leader_schedule='null'
 if leader_response="$(rpc_call "$leader_payload" 2>/dev/null)"; then
@@ -137,8 +158,12 @@ while IFS= read -r account_record; do
   if [[ "$total" =~ ^[0-9]+$ && "$previous_slot" =~ ^[0-9]+$ && "$previous_total" =~ ^[0-9]+$ &&
         "$observed_slot" =~ ^[0-9]+$ ]] && ((observed_slot > previous_slot && total >= previous_total)); then
     # getLeaderSchedule returns slots relative to the epoch start.
+    # Reject every interval that starts before the new epoch's reward-delay
+    # window ends. A finalized epoch-info call is not atomically tied to the
+    # account snapshot, and schedule entries are only valid for this epoch;
+    # any cross-boundary or early-epoch gap is therefore unattributable.
     if [[ "$leader_schedule" != null ]] &&
-       ! ((previous_slot < epoch_start_slot + 8 && observed_slot >= epoch_start_slot + 8)); then
+       ! ((previous_slot < epoch_start_slot + 8)); then
       relative_before=$((previous_slot - epoch_start_slot))
       relative_after=$((observed_slot - epoch_start_slot))
       if ((relative_before < 0)); then relative_before=0; fi

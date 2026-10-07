@@ -103,13 +103,13 @@ for stage in 1 2; do
   MOCK_OBSERVED_STAGE="$stage" "$repo_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
     http://mock-rpc.invalid "$leader_state" 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
     2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3 "$identity" "$references" \
-    "$mock_curl" 20 0 >/dev/null
+    "$mock_curl" 20 432000 100 true 20 >/dev/null
 done
 leader_gap_output="$(
   MOCK_OBSERVED_STAGE=3 "$repo_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
     http://mock-rpc.invalid "$leader_state" 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
     2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3 "$identity" "$references" \
-    "$mock_curl" 20 100
+    "$mock_curl" 20 432000 100 true 20
 )"
 assert_contains "$leader_gap_output" 'alpenglowObservedReady=0i'
 assert_contains "$leader_gap_output" 'alpenglowObservedUnattributed=2i'
@@ -121,18 +121,34 @@ for stage in 1 2; do
   MOCK_NO_OBSERVED_LEADERS=1 MOCK_OBSERVED_STAGE="$stage" "$repo_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
     http://mock-rpc.invalid "$delay_state" 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
     2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3 "$identity" "$references" \
-    "$mock_curl" 20 0 >/dev/null
+    "$mock_curl" 20 104 0 false 20 >/dev/null
 done
 epoch_delay_output="$(
   MOCK_NO_OBSERVED_LEADERS=1 MOCK_OBSERVED_STAGE=3 "$repo_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
     http://mock-rpc.invalid "$delay_state" 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
     2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3 "$identity" "$references" \
-    "$mock_curl" 20 104
+    "$mock_curl" 20 104 0 false 20
 )"
 assert_contains "$epoch_delay_output" 'alpenglowObservedReady=0i'
 assert_contains "$epoch_delay_output" 'alpenglowObservedUnattributed=2i'
 [[ "$epoch_delay_output" != *'alpenglowObservedMissed='* ]] || \
   fail 'epoch-delay gaps must remain unattributed, not counted as misses'
+
+early_epoch_state="$(mktemp -d)/vote-inclusion.json"
+MOCK_NO_OBSERVED_LEADERS=1 MOCK_OBSERVED_STAGE=1 "$repo_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
+  http://mock-rpc.invalid "$early_epoch_state" 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
+  2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3 "$identity" "$references" \
+  "$mock_curl" 20 104 0 false 1 >/dev/null
+early_epoch_output="$(
+  MOCK_NO_OBSERVED_LEADERS=1 MOCK_OBSERVED_STAGE=2 "$repo_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
+    http://mock-rpc.invalid "$early_epoch_state" 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
+    2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3 "$identity" "$references" \
+    "$mock_curl" 20 104 0 false 1
+)"
+assert_contains "$early_epoch_output" 'alpenglowObservedReady=0i'
+assert_contains "$early_epoch_output" 'alpenglowObservedUnattributed=2i'
+[[ "$early_epoch_output" != *'alpenglowObservedIncluded='* ]] || \
+  fail 'gaps crossing into the epoch reward-delay window must remain unattributed'
 
 migration_marker_output="$(
   MOCK_ALPENGLOW_EPOCH_CREDIT_MARKER=1 CURL_BIN="$mock_curl" \

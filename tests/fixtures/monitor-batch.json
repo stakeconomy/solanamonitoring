@@ -59,6 +59,17 @@
   },
   {
     "jsonrpc": "2.0",
+    "result": {
+      "slotsPerEpoch": 432000,
+      "leaderScheduleSlotOffset": 432000,
+      "warmup": false,
+      "firstNormalEpoch": 0,
+      "firstNormalSlot": 0
+    },
+    "id": "epochSchedule"
+  },
+  {
+    "jsonrpc": "2.0",
     "result": [
       {"numSlots": 64, "numTransactions": 50000, "samplePeriodSecs": 26},
       {"numSlots": 64, "numTransactions": 51000, "samplePeriodSecs": 26}

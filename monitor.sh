@@ -373,6 +373,7 @@ batch_payload="$(jq -cn --arg identity "$identity_pubkey" --arg vote "$vote_acco
   {jsonrpc:"2.0",id:"clusterNodes",method:"getClusterNodes"},
   {jsonrpc:"2.0",id:"epochInfo",method:"getEpochInfo",params:[{commitment:"confirmed"}]},
   {jsonrpc:"2.0",id:"finalizedEpochInfo",method:"getEpochInfo",params:[{commitment:"finalized"}]},
+  {jsonrpc:"2.0",id:"epochSchedule",method:"getEpochSchedule"},
   {jsonrpc:"2.0",id:"performance",method:"getRecentPerformanceSamples",params:[5]},
   {jsonrpc:"2.0",id:"identityBalance",method:"getBalance",params:[$identity,{commitment:"confirmed"}]},
   {jsonrpc:"2.0",id:"voteBalance",method:"getBalance",params:[$vote,{commitment:"confirmed"}]},
@@ -396,6 +397,7 @@ batch_summary="$(jq -c --arg identity "$identity_pubkey" '
   (response("clusterNodes").result // []) as $nodes |
   (response("epochInfo").result // {}) as $epoch |
   (response("finalizedEpochInfo").result // {}) as $finalizedEpoch |
+  (response("epochSchedule").result // {}) as $epochSchedule |
   (response("performance").result // []) as $performance |
   (response("agGenesisCert")) as $agGenesisCert |
   ($bp.byIdentity[$identity] // [0, 0]) as $validatorProduction |
@@ -421,6 +423,9 @@ batch_summary="$(jq -c --arg identity "$identity_pubkey" '
     finalizedEpoch: ($finalizedEpoch.epoch // null),
     finalizedSlotIndex: ($finalizedEpoch.slotIndex // null),
     finalizedSlotsInEpoch: ($finalizedEpoch.slotsInEpoch // null),
+    slotsPerEpoch: ($epochSchedule.slotsPerEpoch // null),
+    epochScheduleWarmup: (if ($epochSchedule.warmup | type) == "boolean" then $epochSchedule.warmup else null end),
+    firstNormalSlot: ($epochSchedule.firstNormalSlot // null),
     consensus: (
       if $agGenesisCert.error != null then "unknown"
       elif $agGenesisCert.result == null then "tower"
@@ -482,6 +487,9 @@ finalized_slot="$(jq -r '.finalizedSlot // empty' <<<"$batch_summary")"
 finalized_epoch="$(jq -r '.finalizedEpoch // empty' <<<"$batch_summary")"
 finalized_slot_index="$(jq -r '.finalizedSlotIndex // empty' <<<"$batch_summary")"
 finalized_slots_in_epoch="$(jq -r '.finalizedSlotsInEpoch // empty' <<<"$batch_summary")"
+slots_per_epoch="$(jq -r '.slotsPerEpoch // empty' <<<"$batch_summary")"
+epoch_schedule_warmup="$(jq -r 'if .epochScheduleWarmup == true then "true" elif .epochScheduleWarmup == false then "false" else empty end' <<<"$batch_summary")"
+first_normal_slot="$(jq -r '.firstNormalSlot // empty' <<<"$batch_summary")"
 IFS=$'\t' read -r cluster _ <<<"$(cluster_metadata_for_genesis "$genesis_hash")"
 consensus="$(jq -r '.consensus' <<<"$batch_summary")"
 
@@ -490,7 +498,8 @@ consensus="$(jq -r '.consensus' <<<"$batch_summary")"
 alpenglow_observed_fields=''
 if [[ "$consensus" == 'alpenglow' && "$finalized_slot" =~ ^[0-9]+$ &&
       "$finalized_epoch" =~ ^[0-9]+$ && "$finalized_slots_in_epoch" =~ ^[1-9][0-9]*$ &&
-      "$finalized_slot_index" =~ ^[0-9]+$ ]]; then
+      "$finalized_slot_index" =~ ^[0-9]+$ && "$slots_per_epoch" =~ ^[1-9][0-9]*$ &&
+      "$first_normal_slot" =~ ^[0-9]+$ && ( "$epoch_schedule_warmup" == true || "$epoch_schedule_warmup" == false ) ]]; then
   alpenglow_reference_accounts="$(jq -cer --arg own "$vote_account" --argjson limit "$alpenglow_reference_count" '
     [.result.current[]? |
       select(.votePubkey != $own) |
@@ -498,10 +507,10 @@ if [[ "$consensus" == 'alpenglow' && "$finalized_slot" =~ ^[0-9]+$ &&
       select((.vote | type) == "string" and (.node | type) == "string")]
     | sort_by(-.stake) | .[:$limit] | map({vote: .vote, node: .node})
   ' <<<"$vote_response" 2>/dev/null || printf '[]')"
-  epoch_start_slot=$((finalized_slot - finalized_slot_index))
   alpenglow_observed_fields="$(bash "$script_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
     "$rpc_url" "$alpenglow_observed_state" "$genesis_hash" "$vote_account" "$identity_pubkey" \
-    "$alpenglow_reference_accounts" "$curl_bin" "$rpc_timeout" "$epoch_start_slot" "$alpenglow_rate_samples" 2>/dev/null || true)"
+    "$alpenglow_reference_accounts" "$curl_bin" "$rpc_timeout" "$slots_per_epoch" "$first_normal_slot" \
+    "$epoch_schedule_warmup" "$alpenglow_rate_samples" 2>/dev/null || true)"
 fi
 
 # Some validator builds expose getRecentPerformanceSamples but don't populate
