@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+payload=''
+while (($#)); do
+  case "$1" in
+    --data|--data-raw|--data-binary) payload="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+[[ -n "$payload" ]] || { printf 'mock: missing JSON-RPC payload\n' >&2; exit 2; }
+if [[ -n "${MOCK_ALPENGLOW_V3_CALL_LOG:-}" ]]; then
+  printf '%s\n' "$payload" >>"$MOCK_ALPENGLOW_V3_CALL_LOG"
+fi
+
+identity="${MOCK_ALPENGLOW_V3_IDENTITY:-Identity111111111111111111111111111111111}"
+scenario="${MOCK_ALPENGLOW_V3_SCENARIO:-valid}"
+
+if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$payload"; then
+  genesis='4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY'
+  cert='{"certificate":"present"}'
+  owner='Vote111111111111111111111111111111111111111'
+  node="$identity"
+  schedule='{"slotsPerEpoch":432000,"leaderScheduleSlotOffset":432000,"warmup":true,"firstNormalEpoch":14,"firstNormalSlot":524256}'
+  case "$scenario" in
+    mainnet) genesis='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp' ;;
+    tower) cert='null' ;;
+    wrong-node) node='OtherIdentity111111111111111111111111111111' ;;
+    wrong-owner) owner='11111111111111111111111111111111' ;;
+    fixed-schedule) schedule='{"slotsPerEpoch":432001,"leaderScheduleSlotOffset":432000,"warmup":true,"firstNormalEpoch":14,"firstNormalSlot":524256}' ;;
+  esac
+  duplicate_id='v3-accounts'
+  [[ "$scenario" == malformed-batch-ids ]] && duplicate_id='v3-genesis'
+  jq -cn \
+    --arg genesis "$genesis" --argjson cert "$cert" --argjson schedule "$schedule" \
+    --arg owner "$owner" --arg node "$node" --arg accounts_id "$duplicate_id" '
+    [
+      {jsonrpc:"2.0",id:"v3-genesis",result:$genesis},
+      {jsonrpc:"2.0",id:"v3-ag-genesis-cert",result:$cert},
+      {jsonrpc:"2.0",id:"v3-epoch-schedule",result:$schedule},
+      {jsonrpc:"2.0",id:$accounts_id,result:{context:{slot:449000000},value:[{
+        owner:$owner,
+        data:{program:"vote",parsed:{type:"vote",info:{nodePubkey:$node,epochCredits:[
+          {epoch:"1052",credits:"123456",previousCredits:"123000"}
+        ]}}}
+      }]}}
+    ]'
+  exit 0
+fi
+
+method="$(jq -r '.method // empty' <<<"$payload")"
+id="$(jq -c '.id' <<<"$payload")"
+case "$method" in
+  getVoteAccounts)
+    jq -cn --argjson id "$id" '{jsonrpc:"2.0",id:$id,result:{current:[{
+      votePubkey:"ReferenceVote1111111111111111111111111111111",
+      nodePubkey:"ReferenceNode1111111111111111111111111111111",
+      activatedStake:1000
+    }],delinquent:[]}}'
+    ;;
+  getLeaderSchedule)
+    jq -cn --argjson id "$id" '{jsonrpc:"2.0",id:$id,result:{}}'
+    ;;
+  *) printf 'mock: unexpected method %s\n' "$method" >&2; exit 2 ;;
+esac
