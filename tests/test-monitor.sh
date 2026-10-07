@@ -129,6 +129,41 @@ missing_cohort="$(jq -cer '.reference_votes' "$missing_cohort_state" 2>/dev/null
 [[ "$missing_cohort" == '["AlternateVote11111111111111111111111111111111"]' ]] || \
   fail 'an ineligible persisted reference must be replaced from current eligible vote accounts'
 
+large_reference_accounts="$(jq -cn '[range(0; 600) | {
+  vote: ("LargeVote" + (. | tostring) + "111111111111111111111111111111111"),
+  node: ("LargeNode" + (. | tostring) + "111111111111111111111111111111111")
+}]')"
+jq_wrapper_dir="$(mktemp -d)"
+jq_call_log="$jq_wrapper_dir/calls"
+real_jq="$(command -v jq)"
+cat >"$jq_wrapper_dir/jq" <<'EOF'
+#!/usr/bin/env bash
+printf '1\n' >>"$MOCK_JQ_CALL_LOG"
+exec "$REAL_JQ" "$@"
+EOF
+chmod +x "$jq_wrapper_dir/jq"
+large_cohort_state="$(mktemp -d)/vote-inclusion.json"
+large_cohort_output="$(
+  PATH="$jq_wrapper_dir:$PATH" MOCK_JQ_CALL_LOG="$jq_call_log" REAL_JQ="$real_jq" \
+    MOCK_LARGE_OBSERVED_ACCOUNTS=1 MOCK_OBSERVED_STAGE=1 \
+    "$repo_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
+    http://mock-rpc.invalid "$large_cohort_state" 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
+    2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3 "$identity" "$large_reference_accounts" \
+    "$mock_curl" 20 432000 0 false 20 8
+)"
+assert_contains "$large_cohort_output" 'alpenglowObservedReady=0i'
+assert_contains "$large_cohort_output" 'alpenglowObservedReferences=8i'
+jq -e --argjson eligible "$large_reference_accounts" '
+  .version == 2 and
+  (.reference_votes | length) == 8 and
+  (.reference_votes | unique | length) == 8 and
+  all(.reference_votes[]; . as $vote | any($eligible[]; .vote == $vote))
+' "$large_cohort_state" >/dev/null || \
+  fail 'large randomized cohorts must persist eight unique eligible vote accounts'
+jq_call_count="$(wc -l <"$jq_call_log")"
+[[ "$jq_call_count" -le 150 ]] || \
+  fail "large randomized reference cohorts must use bounded jq calls, observed $jq_call_count"
+
 vote_change_output="$(
   MOCK_OBSERVED_STAGE=3 CURL_BIN="$mock_curl" \
   MONITOR_ALPENGLOW_OBSERVED_STATE="$observed_state" \

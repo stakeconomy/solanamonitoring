@@ -74,30 +74,33 @@ fi
 # Persist vote accounts rather than node identities. A vote account can keep its
 # cohort place across monitor runs, while the node identity is always refreshed
 # from the current getVoteAccounts response before leader-gap attribution.
+# Build the retained and available sets in one jq pass. Spawning jq once per
+# eligible validator makes a normal Testnet cohort take longer than Telegraf's
+# execution timeout.
+persisted_votes="$(jq -c '.reference_votes // []' <<<"$state")"
+selection_pool="$(jq -cn --argjson eligible "$eligible_accounts" --argjson persisted "$persisted_votes" --argjson limit "$reference_limit" '
+  ([$persisted[] as $persisted_vote |
+      $eligible[] | select(.vote == $persisted_vote)] | .[:$limit]) as $kept |
+  ($kept | map(.vote)) as $kept_votes |
+  {
+    kept: $kept,
+    available: [$eligible[] |
+      select(.vote as $candidate_vote | ($kept_votes | index($candidate_vote) | not))]
+  }
+')" || {
+  emit_unready 0
+  exit 0
+}
+
 selected_records=()
-if [[ "$state" != '{}' ]]; then
-  while IFS= read -r persisted_vote; do
-    candidate="$(jq -cer --arg vote "$persisted_vote" '.[] | select(.vote == $vote)' <<<"$eligible_accounts" 2>/dev/null || true)"
-    if [[ -n "$candidate" && ${#selected_records[@]} -lt $reference_limit ]]; then
-      selected_records+=("$candidate")
-    fi
-  done < <(jq -r '.reference_votes[]' <<<"$state")
-fi
+while IFS= read -r candidate; do
+  selected_records+=("$candidate")
+done < <(jq -c '.kept[]' <<<"$selection_pool")
 
 available_records=()
 while IFS= read -r candidate; do
-  candidate_vote="$(jq -r '.vote' <<<"$candidate")"
-  already_selected=0
-  for selected in "${selected_records[@]}"; do
-    if [[ "$(jq -r '.vote' <<<"$selected")" == "$candidate_vote" ]]; then
-      already_selected=1
-      break
-    fi
-  done
-  if (( ! already_selected )); then
-    available_records+=("$candidate")
-  fi
-done < <(jq -c '.[]' <<<"$eligible_accounts")
+  available_records+=("$candidate")
+done < <(jq -c '.available[]' <<<"$selection_pool")
 
 # New cohort members are selected only when the state is new or a stored member
 # disappeared. Bash's per-process RANDOM keeps production selection randomized

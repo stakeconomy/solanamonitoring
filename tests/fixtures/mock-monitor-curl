@@ -38,6 +38,19 @@ if [[ "${MOCK_RPC_FAIL:-0}" == 1 ]]; then
 fi
 
 if jq -e 'type == "object" and .id == "alpenglowObservedAccounts" and .method == "getMultipleAccounts"' >/dev/null 2>&1 <<<"$payload"; then
+  if [[ "${MOCK_LARGE_OBSERVED_ACCOUNTS:-0}" == 1 ]]; then
+    jq -cn --argjson request "$payload" '{
+      jsonrpc: "2.0",
+      id: "alpenglowObservedAccounts",
+      result: {
+        context: {slot: 100},
+        value: [$request.params[0][] | {
+          data: {parsed: {info: {epochCredits: [{epoch: "1026", credits: "1000", previousCredits: "900"}]}}}
+        }]
+      }
+    }'
+    exit 0
+  fi
   case "${MOCK_OBSERVED_STAGE:-1}" in
     1) exec jq . "$fixture_dir/alpenglow-observed-accounts-1.json" ;;
     2) exec jq . "$fixture_dir/alpenglow-observed-accounts-2.json" ;;
