@@ -85,6 +85,50 @@ assert_contains "$observed_third_output" 'alpenglowObservedMissed=1i'
 assert_contains "$observed_third_output" 'alpenglowObservedUnattributed=0i'
 [[ -f "$observed_state" ]] || fail 'observed inclusion state must be atomically persisted'
 
+cohort_state="$(mktemp -d)/vote-inclusion.json"
+cohort_first_output="$(
+  MOCK_OBSERVED_STAGE=1 MOCK_REFERENCE_COHORT_STAGE=1 CURL_BIN="$mock_curl" \
+  MONITOR_ALPENGLOW_OBSERVED_STATE="$cohort_state" \
+  MONITOR_ALPENGLOW_REFERENCE_COUNT=1 \
+  "$repo_dir/monitor.sh" --identity "$identity" --rpc-url http://mock-rpc.invalid
+)"
+assert_contains "$cohort_first_output" 'alpenglowObservedReferences=1i'
+cohort_first="$(jq -cer '
+  .reference_votes as $votes |
+  ($votes | type) == "array" and ($votes | length) == 1 and
+  ($votes[0] == "CurrentVote111111111111111111111111111111111" or
+   $votes[0] == "AlternateVote11111111111111111111111111111111")
+  | $votes
+' "$cohort_state" 2>/dev/null)" || fail 'initial observed state must persist one selected reference vote account'
+
+cohort_second_output="$(
+  MOCK_OBSERVED_STAGE=2 MOCK_REFERENCE_COHORT_STAGE=2 CURL_BIN="$mock_curl" \
+  MONITOR_ALPENGLOW_OBSERVED_STATE="$cohort_state" \
+  MONITOR_ALPENGLOW_REFERENCE_COUNT=1 \
+  "$repo_dir/monitor.sh" --identity "$identity" --rpc-url http://mock-rpc.invalid
+)"
+assert_contains "$cohort_second_output" 'alpenglowObservedReferences=1i'
+cohort_second="$(jq -cer '.reference_votes' "$cohort_state" 2>/dev/null)" || \
+  fail 'observed state must retain its reference vote-account cohort'
+[[ "$cohort_second" == "$cohort_first" ]] || \
+  fail 'a stable observed reference cohort must not be replaced when stake ranking changes'
+
+missing_cohort_state="$(mktemp -d)/vote-inclusion.json"
+cat >"$missing_cohort_state" <<'EOF'
+{"version":2,"genesis":"4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY","vote_account":"2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3","reference_votes":["CurrentVote111111111111111111111111111111111"],"accounts":{}}
+EOF
+missing_cohort_output="$(
+  MOCK_OBSERVED_STAGE=1 MOCK_REFERENCE_COHORT_STAGE=3 CURL_BIN="$mock_curl" \
+  MONITOR_ALPENGLOW_OBSERVED_STATE="$missing_cohort_state" \
+  MONITOR_ALPENGLOW_REFERENCE_COUNT=1 \
+  "$repo_dir/monitor.sh" --identity "$identity" --rpc-url http://mock-rpc.invalid
+)"
+assert_contains "$missing_cohort_output" 'alpenglowObservedReferences=1i'
+missing_cohort="$(jq -cer '.reference_votes' "$missing_cohort_state" 2>/dev/null)" || \
+  fail 'observed state must persist repaired reference vote-account cohorts'
+[[ "$missing_cohort" == '["AlternateVote11111111111111111111111111111111"]' ]] || \
+  fail 'an ineligible persisted reference must be replaced from current eligible vote accounts'
+
 vote_change_output="$(
   MOCK_OBSERVED_STAGE=3 CURL_BIN="$mock_curl" \
   MONITOR_ALPENGLOW_OBSERVED_STATE="$observed_state" \

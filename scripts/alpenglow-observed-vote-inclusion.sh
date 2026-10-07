@@ -18,6 +18,7 @@ schedule_slots_per_epoch="$9"
 schedule_first_normal_slot="${10:-}"
 schedule_warmup="${11:-}"
 rate_samples="${12:-20}"
+reference_limit="${13:-8}"
 
 emit_unready() {
   local references="$1"
@@ -39,11 +40,80 @@ rpc_call() {
     --header 'Content-Type: application/json' --data "$1" "$rpc_url"
 }
 
-reference_count="$(jq -r 'length' <<<"$reference_accounts_json" 2>/dev/null || printf '0')"
-if [[ ! "$reference_count" =~ ^[0-9]+$ ]]; then
+reference_count=0
+if [[ ! "$reference_limit" =~ ^[1-9][0-9]*$ || "$reference_limit" -gt 32 ]]; then
   emit_unready 0
   exit 0
 fi
+
+eligible_accounts="$(jq -ce '
+  if type != "array" or
+     any(.[]; (type != "object") or
+       ((.vote | type) != "string") or
+       ((.node | type) != "string")) or
+     ([.[].vote] | unique | length != length)
+  then error("invalid eligible reference accounts")
+  else . end
+' <<<"$reference_accounts_json" 2>/dev/null)" || {
+  emit_unready 0
+  exit 0
+}
+
+state='{}'
+if [[ -f "$state_file" ]]; then
+  state="$(jq -ce --arg genesis "$genesis_hash" --arg vote "$own_vote_account" '
+    if .version == 2 and .genesis == $genesis and .vote_account == $vote and
+       (.reference_votes | type) == "array" and
+       all(.reference_votes[]; type == "string") and
+       (.reference_votes | unique | length == length) and
+       (.accounts | type) == "object"
+    then . else {} end
+  ' "$state_file" 2>/dev/null || printf '{}')"
+fi
+
+# Persist vote accounts rather than node identities. A vote account can keep its
+# cohort place across monitor runs, while the node identity is always refreshed
+# from the current getVoteAccounts response before leader-gap attribution.
+selected_records=()
+if [[ "$state" != '{}' ]]; then
+  while IFS= read -r persisted_vote; do
+    candidate="$(jq -cer --arg vote "$persisted_vote" '.[] | select(.vote == $vote)' <<<"$eligible_accounts" 2>/dev/null || true)"
+    if [[ -n "$candidate" && ${#selected_records[@]} -lt $reference_limit ]]; then
+      selected_records+=("$candidate")
+    fi
+  done < <(jq -r '.reference_votes[]' <<<"$state")
+fi
+
+available_records=()
+while IFS= read -r candidate; do
+  candidate_vote="$(jq -r '.vote' <<<"$candidate")"
+  already_selected=0
+  for selected in "${selected_records[@]}"; do
+    if [[ "$(jq -r '.vote' <<<"$selected")" == "$candidate_vote" ]]; then
+      already_selected=1
+      break
+    fi
+  done
+  if (( ! already_selected )); then
+    available_records+=("$candidate")
+  fi
+done < <(jq -c '.[]' <<<"$eligible_accounts")
+
+# New cohort members are selected only when the state is new or a stored member
+# disappeared. Bash's per-process RANDOM keeps production selection randomized
+# without turning reference identities into metric labels.
+while [[ ${#selected_records[@]} -lt $reference_limit && ${#available_records[@]} -gt 0 ]]; do
+  choice=$((RANDOM % ${#available_records[@]}))
+  selected_records+=("${available_records[$choice]}")
+  available_records=("${available_records[@]:0:$choice}" "${available_records[@]:$((choice + 1))}")
+done
+
+if ((${#selected_records[@]})); then
+  reference_accounts_json="$(printf '%s\n' "${selected_records[@]}" | jq -sc '.')"
+else
+  reference_accounts_json='[]'
+fi
+reference_count="${#selected_records[@]}"
 
 accounts_json="$(jq -cn --arg own "$own_vote_account" --arg own_node "$own_node_pubkey" --argjson references "$reference_accounts_json" \
   '[{vote: $own, node: $own_node}] + $references' 2>/dev/null)" || {
@@ -123,14 +193,6 @@ leader_payload="$(jq -cn --argjson start "$epoch_start_slot" '{jsonrpc:"2.0",id:
 leader_schedule='null'
 if leader_response="$(rpc_call "$leader_payload" 2>/dev/null)"; then
   leader_schedule="$(jq -ce '.result // null | if type == "object" or . == null then . else error("invalid leader schedule") end' <<<"$leader_response" 2>/dev/null || printf 'null')"
-fi
-
-state='{}'
-if [[ -f "$state_file" ]]; then
-  state="$(jq -ce --arg genesis "$genesis_hash" --arg vote "$own_vote_account" '
-    if .version == 1 and .genesis == $genesis and .vote_account == $vote and (.accounts | type) == "object"
-    then . else {} end
-  ' "$state_file" 2>/dev/null || printf '{}')"
 fi
 
 next_accounts='{}'
@@ -214,8 +276,9 @@ while IFS= read -r account_record; do
   fi
 done < <(jq -c '.accounts[]' <<<"$snapshot")
 
-state_document="$(jq -cn --arg genesis "$genesis_hash" --arg vote "$own_vote_account" --argjson accounts "$next_accounts" \
-  '{version: 1, genesis: $genesis, vote_account: $vote, accounts: $accounts}')"
+reference_votes="$(jq -c '[.[].vote]' <<<"$reference_accounts_json")"
+state_document="$(jq -cn --arg genesis "$genesis_hash" --arg vote "$own_vote_account" --argjson references "$reference_votes" --argjson accounts "$next_accounts" \
+  '{version: 2, genesis: $genesis, vote_account: $vote, reference_votes: $references, accounts: $accounts}')"
 state_dir="$(dirname "$state_file")"
 if [[ -d "$state_dir" ]] || mkdir -p "$state_dir" 2>/dev/null; then
   if temp_state="$(mktemp "${state_file}.tmp.XXXXXX" 2>/dev/null)"; then

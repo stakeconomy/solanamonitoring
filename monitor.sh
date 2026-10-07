@@ -43,7 +43,8 @@ SOLANA_VOTE_ACCOUNT, SOLANA_RPC_URL, SOLANA_CLI, MONITOR_RPC_TIMEOUT,
 MONITOR_PRICE_TIMEOUT, SOLANA_PERFORMANCE_RPC_URL, and
 MONITOR_SLOT_MILLISECONDS. MONITOR_ALPENGLOW_OBSERVED_STATE selects the
 validator-user-writable state file for inferred/observed Alpenglow vote
-inclusion; MONITOR_ALPENGLOW_REFERENCE_COUNT caps top-stake references.
+inclusion; MONITOR_ALPENGLOW_REFERENCE_COUNT caps a stable randomized
+reference cohort.
 EOF
 }
 
@@ -503,14 +504,14 @@ if [[ "$consensus" == 'alpenglow' && "$finalized_slot" =~ ^[0-9]+$ &&
   alpenglow_reference_accounts="$(jq -cer --arg own "$vote_account" --argjson limit "$alpenglow_reference_count" '
     [.result.current[]? |
       select(.votePubkey != $own) |
-      {vote: .votePubkey, node: .nodePubkey, stake: (.activatedStake // 0)} |
+      {vote: .votePubkey, node: .nodePubkey} |
       select((.vote | type) == "string" and (.node | type) == "string")]
-    | sort_by(-.stake) | .[:$limit] | map({vote: .vote, node: .node})
+    | unique_by(.vote)
   ' <<<"$vote_response" 2>/dev/null || printf '[]')"
   alpenglow_observed_fields="$(bash "$script_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
     "$rpc_url" "$alpenglow_observed_state" "$genesis_hash" "$vote_account" "$identity_pubkey" \
     "$alpenglow_reference_accounts" "$curl_bin" "$rpc_timeout" "$slots_per_epoch" "$first_normal_slot" \
-    "$epoch_schedule_warmup" "$alpenglow_rate_samples" 2>/dev/null || true)"
+    "$epoch_schedule_warmup" "$alpenglow_rate_samples" "$alpenglow_reference_count" 2>/dev/null || true)"
 fi
 
 # Some validator builds expose getRecentPerformanceSamples but don't populate

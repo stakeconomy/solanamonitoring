@@ -110,6 +110,17 @@ if [[ "$(jq -r '.method // ""' <<<"$payload")" == "getVoteAccounts" ]]; then
   if [[ "${MOCK_INVALID_ALPENGLOW_EPOCH_CREDIT:-0}" == 1 ]]; then
     vote_filter+=' | .result.current[0].epochCredits[-1] = [1026, 2336223624]'
   fi
+  case "${MOCK_REFERENCE_COHORT_STAGE:-}" in
+    1)
+      vote_filter+=' | .result.current += [{"activatedStake":4000000000000000,"commission":5,"epochCredits":[[1026,1000,900]],"epochVoteAccount":true,"lastVote":437726160,"nodePubkey":"AlternateValidator111111111111111111111111111","rootSlot":437726129,"votePubkey":"AlternateVote11111111111111111111111111111111"}]'
+      ;;
+    2)
+      vote_filter+=' | .result.current += [{"activatedStake":6000000000000000,"commission":5,"epochCredits":[[1026,1000,900]],"epochVoteAccount":true,"lastVote":437726160,"nodePubkey":"AlternateValidator111111111111111111111111111","rootSlot":437726129,"votePubkey":"AlternateVote11111111111111111111111111111111"}]'
+      ;;
+    3)
+      vote_filter+=' | .result.current |= map(select(.votePubkey != "CurrentVote111111111111111111111111111111111")) + [{"activatedStake":6000000000000000,"commission":5,"epochCredits":[[1026,1000,900]],"epochVoteAccount":true,"lastVote":437726160,"nodePubkey":"AlternateValidator111111111111111111111111111","rootSlot":437726129,"votePubkey":"AlternateVote11111111111111111111111111111111"}]'
+      ;;
+  esac
   exec jq "$vote_filter" "$fixture_dir/monitor-vote-accounts.json"
 fi
 
