@@ -374,10 +374,19 @@ for snapshot_row in "${snapshot_rows[@]:2}"; do
 done
 [[ "${snap_valid[$vote_account]:-false}" == true && "${snap_node[$vote_account]}" == "$identity" ]] || { printf 'error: invalid monitored account\n' >&2; exit 1; }
 
+persisted_monitored_total=''
+persisted_monitored_slot=''
+if ((state_exists==1 && rotation==0)); then
+  persisted_monitored_row="$(jq -r --arg vote "$vote_account" '.accounts[$vote]|[.total,.slot]|@tsv' <<<"$state_json")" || exit 1
+  IFS=$'\t' read -r persisted_monitored_total persisted_monitored_slot <<<"$persisted_monitored_row"
+fi
+
 # The normal two-second path is a repeated finalized snapshot. When config,
 # membership, nodes and totals are unchanged, no cache interpretation or state
-# rewrite is needed; preserve the existing bytes and emit directly.
-if ((state_exists==1 && rotation==0)); then
+# rewrite is needed; preserve the existing bytes and emit directly. Skip this
+# full-cache pass entirely when the finalized slot advanced; the advancing path
+# validates the same cache once in its consolidated transition.
+if ((state_exists==1 && rotation==0)) && [[ "$observed_slot" == "$persisted_monitored_slot" ]]; then
   fast_row="$(jq -r --arg slot "$observed_slot" --arg first "$epoch_first" --arg limit "$epoch_end" --argjson rc "$reference_count" --argjson rs "$rate_samples" --argjson snapshots "$snapshot_accounts" '
     def dec: type=="string" and test("^(0|[1-9][0-9]*)$") and ((length<19) or (length==19 and .<="9223372036854775807"));
     def dec_lt($a;$b): (($a|length)<($b|length)) or ((($a|length)==($b|length)) and $a<$b);
@@ -414,8 +423,6 @@ if ((state_exists==0 || rotation==1)); then
 fi
 
 if ((cold==0)); then
-  persisted_monitored_total="$(jq -r --arg vote "$vote_account" '.accounts[$vote].total' <<<"$state_json")"
-  persisted_monitored_slot="$(jq -r --arg vote "$vote_account" '.accounts[$vote].slot' <<<"$state_json")"
   dec_le "$persisted_monitored_total" "${snap_total[$vote_account]}" || { printf 'error: monitored total decreased\n' >&2; exit 1; }
   ((10#$observed_slot >= 10#$persisted_monitored_slot)) || { printf 'error: finalized slot regressed\n' >&2; exit 1; }
 fi
