@@ -151,7 +151,7 @@ def observed_inclusion_panel:
     "type": "timeseries"
   };
 
-def observed_status_panel:
+def alpenglow_status_expression:
   ("alpenglow_observed_ready" + alpenglow_selector) as $ready
   | ("time() - timestamp(alpenglow_observed_observed_slot" + alpenglow_selector + ")") as $age
   | alpenglow_expected_increase as $expected
@@ -159,8 +159,15 @@ def observed_status_panel:
       "((0 * ((" + $age + ") > 5)) + 4)"
       + " or on(cluster,genesis,consensus,pubkey,vote_account,schema) ((0 * ((" + $ready + " == 1) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((" + $age + ") <= 5) and on(cluster,genesis,consensus,pubkey,vote_account,schema) (" + $expected + " == 0))) + 3)"
       + " or on(cluster,genesis,consensus,pubkey,vote_account,schema) ((0 * ((" + $ready + " == 1) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((" + $age + ") <= 5) and on(cluster,genesis,consensus,pubkey,vote_account,schema) (" + $expected + " > 0))) + 2)"
+      + " or on(cluster,genesis,consensus,pubkey,vote_account,schema) (((0 * ((" + $ready + " == 1) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((" + $age + ") <= 5))) + 2) unless on(cluster,genesis,consensus,pubkey,vote_account,schema) " + $expected + ")"
       + " or on(cluster,genesis,consensus,pubkey,vote_account,schema) ((0 * ((" + $ready + " == 0) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((" + $age + ") <= 5))) + 1)"
-    ) as $status
+    );
+
+def observed_status_panel:
+  ("alpenglow_observed_ready" + alpenglow_selector) as $ready
+  | ("time() - timestamp(alpenglow_observed_observed_slot" + alpenglow_selector + ")") as $age
+  | alpenglow_expected_increase as $expected
+  | alpenglow_status_expression as $status
   | {
     "datasource": datasource,
     "description": (alpenglow_disclosure + ". Uses the latest ready value and actual sample timestamp; samples older than five seconds are stale."),
@@ -206,6 +213,77 @@ def observed_status_panel:
     "transparent": true,
     "type": "stat"
   };
+
+def target_signature:
+  [.targets[] | {datasource,editorMode,expr,hide,legendFormat,range,refId,instant}];
+
+def alpenglow_v3_canonical:
+  ("alpenglow_observed_ready" + alpenglow_selector) as $ready
+  | ("time() - timestamp(alpenglow_observed_observed_slot" + alpenglow_selector + ")") as $age
+  | alpenglow_status_expression as $status
+  | ([.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171 or .id == 172)] | length == 4)
+  and ([.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171) | .id] | sort == [168,169,170,171])
+  and ([.panels[].id] | index(172) == null)
+  and any(.panels[];
+    .id == 168
+    and .title == "Alpenglow vote inclusion rate — last 10 minutes"
+    and .description == (alpenglow_disclosure + ". Rolling included estimate divided by rolling expected estimate; zero-opportunity windows are shown as no value.")
+    and .type == "stat"
+    and .gridPos == {"h":4,"w":6,"x":0,"y":55}
+    and .fieldConfig.defaults.unit == "percent"
+    and .fieldConfig.defaults.noValue == "No vote opportunities in the last 10 minutes"
+    and .fieldConfig.defaults.mappings == []
+    and (target_signature == [{"datasource":datasource,"editorMode":"code","expr":alpenglow_rate,"hide":false,"legendFormat":"Alpenglow vote inclusion rate — last 10 minutes","range":false,"refId":"A","instant":true}])
+  )
+  and any(.panels[];
+    .id == 169
+    and .title == "Alpenglow vote counts — last 10 minutes"
+    and .description == (alpenglow_disclosure + ". Display-rounded rolling estimates account for increase() extrapolation at window boundaries.")
+    and .type == "stat"
+    and .gridPos == {"h":4,"w":12,"x":6,"y":55}
+    and .fieldConfig.defaults.unit == "none"
+    and .fieldConfig.defaults.noValue == "No recent samples"
+    and .fieldConfig.defaults.mappings == []
+    and (target_signature == [
+      {"datasource":datasource,"editorMode":"code","expr":("round(" + alpenglow_included_increase + ")"),"hide":false,"legendFormat":"Included","range":false,"refId":"A","instant":true},
+      {"datasource":datasource,"editorMode":"code","expr":("round(" + alpenglow_expected_increase + ")"),"hide":false,"legendFormat":"Estimated possible","range":false,"refId":"B","instant":true},
+      {"datasource":datasource,"editorMode":"code","expr":("round(" + alpenglow_missed_increase + ")"),"hide":false,"legendFormat":"Estimated missed","range":false,"refId":"C","instant":true}
+    ])
+  )
+  and any(.panels[];
+    .id == 170
+    and .title == "Alpenglow collection status"
+    and .description == (alpenglow_disclosure + ". Uses the latest ready value and actual sample timestamp; samples older than five seconds are stale.")
+    and .type == "stat"
+    and .gridPos == {"h":4,"w":6,"x":18,"y":55}
+    and .interval == "2s"
+    and .fieldConfig.defaults.unit == "none"
+    and .fieldConfig.defaults.noValue == "No recent samples"
+    and .fieldConfig.defaults.mappings == [{"options":{
+      "1":{"color":"orange","index":0,"text":"Collecting / latest gap unattributed"},
+      "2":{"color":"green","index":1,"text":"Current gap attributed"},
+      "3":{"color":"blue","index":2,"text":"No vote opportunities in the last 10 minutes"},
+      "4":{"color":"red","index":3,"text":"Stale — last sample older than 5 seconds"}
+    },"type":"value"}]
+    and (target_signature == [
+      {"datasource":datasource,"editorMode":"code","expr":$ready,"hide":true,"legendFormat":"Ready","range":false,"refId":"A","instant":true},
+      {"datasource":datasource,"editorMode":"code","expr":$age,"hide":true,"legendFormat":"Sample age","range":false,"refId":"B","instant":true},
+      {"datasource":datasource,"editorMode":"code","expr":alpenglow_expected_increase,"hide":true,"legendFormat":"Estimated opportunities","range":false,"refId":"C","instant":true},
+      {"datasource":datasource,"editorMode":"code","expr":$status,"hide":false,"legendFormat":"Collection status","range":false,"refId":"D","instant":true}
+    ])
+  )
+  and any(.panels[];
+    .id == 171
+    and .title == "Alpenglow inclusion rate history"
+    and .description == (alpenglow_disclosure + ". Rolling ten-minute inclusion percentage; periods with zero estimated opportunities are omitted.")
+    and .type == "timeseries"
+    and .gridPos == {"h":8,"w":24,"x":0,"y":59}
+    and .fieldConfig.defaults.unit == "percent"
+    and .fieldConfig.defaults.noValue == "No vote opportunities in the last 10 minutes"
+    and .fieldConfig.defaults.custom.spanNulls == false
+    and .fieldConfig.defaults.mappings == []
+    and (target_signature == [{"datasource":datasource,"editorMode":"code","expr":alpenglow_rate,"hide":false,"legendFormat":"Inclusion rate","range":true,"refId":"A","instant":false}])
+  );
 
 def mount_filter:
   "^/((boot|dev|proc|run|snap|sys|tmp|var/lib|var/snap|var/tmp)(/.*)?|(home/[^/]+|mnt)/[.].*)$";
@@ -363,34 +441,8 @@ def interface_filter:
 | (any(.panels[]; .id == 160)) as $layout_done
 | (any(.panels[]; .id == 166)) as $health_first_done
 | (any(.panels[]; .id as $id | ([168, 169, 170, 171, 172] | index($id)) != null)) as $observed_inclusion_present
-| (
-    any(.panels[]; .id == 168 and .title == "Alpenglow vote inclusion rate")
-    and any(.panels[]; .id == 169 and .title == "Alpenglow vote counts")
-    and any(.panels[]; .id == 171 and .title == "Alpenglow inclusion rate history")
-    and (all(.panels[]; .id != 170 and .id != 172))
-  ) as $observed_inclusion_layout_done
-| (
-    any(.panels[]; .id == 168 and .title == "Alpenglow vote inclusion rate — last 10 minutes")
-    and any(.panels[]; .id == 169 and .title == "Alpenglow vote counts — last 10 minutes")
-    and any(.panels[]; .id == 170 and .title == "Alpenglow collection status")
-    and any(.panels[]; .id == 171 and .title == "Alpenglow inclusion rate history")
-    and (all(.panels[]; .id != 172))
-  ) as $observed_inclusion_v3_layout_done
-| (
-    $observed_inclusion_v3_layout_done
-    and all(.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171);
-      (.description | contains(alpenglow_disclosure))
-      and all(.targets[]; (.expr | contains("schema=\"3\"")))
-    )
-    and any(.panels[]; .id == 168 and .targets[0].expr == alpenglow_rate)
-    and any(.panels[]; .id == 169 and [.targets[].expr] == [
-      ("round(" + alpenglow_included_increase + ")"),
-      ("round(" + alpenglow_expected_increase + ")"),
-      ("round(" + alpenglow_missed_increase + ")")
-    ])
-    and any(.panels[]; .id == 170 and any(.targets[]; .refId == "D" and (.expr | contains("(0 *"))))
-    and any(.panels[]; .id == 171 and .targets[0].expr == alpenglow_rate)
-  ) as $observed_inclusion_done
+| (any(.panels[]; .id == 171 and .gridPos == {"h":8,"w":24,"x":0,"y":58})) as $observed_inclusion_legacy_height
+| alpenglow_v3_canonical as $observed_inclusion_done
 | (any(.panels[]; .id == 54 and .targets[0].instant == true and .targets[0].range == false)) as $query_optimization_done
 | (($pubkey_var.label == "Validator / system") and ($server_var.hide == 2)) as $selector_linked
 | .panels |= map(
@@ -769,14 +821,10 @@ def interface_filter:
 | if $observed_inclusion_done then
     .
   else
-    (if ($observed_inclusion_layout_done or $observed_inclusion_v3_layout_done) then
+    (if $observed_inclusion_present then
       .panels |= map(
         select(.id as $id | ([168, 169, 170, 171, 172] | index($id)) == null)
-      )
-    elif $observed_inclusion_present then
-      .panels |= map(
-        select(.id as $id | ([168, 169, 170, 171, 172] | index($id)) == null)
-        | if .gridPos.y >= 66 then .gridPos.y += 1 else . end
+        | if $observed_inclusion_legacy_height and .gridPos.y >= 66 then .gridPos.y += 1 else . end
       )
     else
       .panels |= map(if .gridPos.y >= 55 then .gridPos.y += 12 else . end)

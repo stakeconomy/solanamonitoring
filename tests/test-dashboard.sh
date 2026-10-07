@@ -17,6 +17,159 @@ fail() {
   exit 1
 }
 
+selector='{cluster=~"$cluster",genesis=~"$genesis",consensus="alpenglow",pubkey="$pubkey",vote_account=~"$vote_account",schema="3"}'
+labels='cluster,genesis,consensus,pubkey,vote_account,schema'
+included="increase(alpenglow_observed_included_total${selector}[10m])"
+expected="increase(alpenglow_observed_expected_total${selector}[10m])"
+missed="increase(alpenglow_observed_missed_total${selector}[10m])"
+ready="alpenglow_observed_ready${selector}"
+age="time() - timestamp(alpenglow_observed_observed_slot${selector})"
+rate="(100 * $included / $expected) and on($labels) ($expected > 0)"
+status="((0 * (($age) > 5)) + 4) or on($labels) ((0 * (($ready == 1) and on($labels) (($age) <= 5) and on($labels) ($expected == 0))) + 3) or on($labels) ((0 * (($ready == 1) and on($labels) (($age) <= 5) and on($labels) ($expected > 0))) + 2) or on($labels) (((0 * (($ready == 1) and on($labels) (($age) <= 5))) + 2) unless on($labels) $expected) or on($labels) ((0 * (($ready == 0) and on($labels) (($age) <= 5))) + 1)"
+disclosure='RPC-derived estimate using a bounded reference cohort; not direct certificate telemetry'
+rate_description="$disclosure. Rolling included estimate divided by rolling expected estimate; zero-opportunity windows are shown as no value."
+counts_description="$disclosure. Display-rounded rolling estimates account for increase() extrapolation at window boundaries."
+status_description="$disclosure. Uses the latest ready value and actual sample timestamp; samples older than five seconds are stale."
+history_description="$disclosure. Rolling ten-minute inclusion percentage; periods with zero estimated opportunities are omitted."
+
+assert_status_semantics() {
+  status_code() {
+    local sample="$1" sample_age="$2" sample_ready="$3" expected_state="$4"
+    if [[ "$sample" == absent ]]; then printf '%s' ''; return; fi
+    if (( sample_age > 5 )); then printf '4'; return; fi
+    if [[ "$sample_ready" == 1 && "$expected_state" == zero ]]; then printf '3'; return; fi
+    if [[ "$sample_ready" == 1 ]]; then printf '2'; return; fi
+    printf '1'
+  }
+
+  [[ "$(status_code present 2 1 absent)" == 2 ]] || fail 'fresh ready sample without computable increase must be current-attributed'
+  [[ "$(status_code present 2 1 zero)" == 3 ]] || fail 'fresh ready zero-opportunity sample must keep zero-opportunity precedence'
+  [[ "$(status_code present 2 1 positive)" == 2 ]] || fail 'fresh ready positive-expected sample must be current-attributed'
+  [[ "$(status_code present 2 0 absent)" == 1 ]] || fail 'fresh unready sample must be unattributed'
+  [[ "$(status_code present 6 1 absent)" == 4 ]] || fail 'stale sample must take precedence over readiness and increase availability'
+  [[ -z "$(status_code absent 0 0 absent)" ]] || fail 'absent sample must remain no-sample'
+}
+
+assert_promql_semantics_if_available() {
+  local promtool_bin="${PROMTOOL:-}"
+  if [[ -z "$promtool_bin" ]]; then
+    promtool_bin="$(command -v promtool || true)"
+  fi
+  [[ -n "$promtool_bin" && -x "$promtool_bin" ]] || return 0
+
+  local concrete_status="$status"
+  concrete_status="${concrete_status//cluster=~\"\$cluster\"/cluster=\"testnet\"}"
+  concrete_status="${concrete_status//genesis=~\"\$genesis\"/genesis=\"genesis\"}"
+  concrete_status="${concrete_status//pubkey=\"\$pubkey\"/pubkey=\"identity\"}"
+  concrete_status="${concrete_status//vote_account=~\"\$vote_account\"/vote_account=\"vote\"}"
+
+  local rules="$migration_dir/status-rules.yml"
+  local tests="$migration_dir/status.test.yml"
+  printf 'groups:\n- name: status\n  rules:\n  - record: alpenglow_status_test\n    expr: |\n      %s\n' "$concrete_status" >"$rules"
+  printf '%s\n' \
+    'rule_files:' \
+    '- status-rules.yml' \
+    'evaluation_interval: 1s' \
+    'tests:' \
+    '- interval: 1s' \
+    '  input_series:' \
+    '  - series: '\''alpenglow_observed_ready{cluster="testnet",genesis="genesis",consensus="alpenglow",pubkey="identity",vote_account="vote",schema="3"}'\''' \
+    '    values: '\''1x10'\''' \
+    '  - series: '\''alpenglow_observed_observed_slot{cluster="testnet",genesis="genesis",consensus="alpenglow",pubkey="identity",vote_account="vote",schema="3"}'\''' \
+    '    values: '\''449000000x10'\''' \
+    '  promql_expr_test:' \
+    '  - expr: alpenglow_status_test' \
+    '    eval_time: 10s' \
+    '    exp_samples:' \
+    '    - labels: '\''alpenglow_status_test{cluster="testnet",genesis="genesis",consensus="alpenglow",pubkey="identity",vote_account="vote",schema="3"}'\''' \
+    '      value: 2' >"$tests"
+
+  (cd "$migration_dir" && "$promtool_bin" test rules "$(basename "$tests")" >/dev/null) \
+    || fail 'PromQL semantics do not map fresh ready with absent increase to current-attributed status 2'
+}
+
+assert_alpenglow_v3() {
+  local file="$1"
+  local label="${2:-$1}"
+  jq -e \
+    --arg included "$included" \
+    --arg expected "$expected" \
+    --arg missed "$missed" \
+    --arg ready "$ready" \
+    --arg age "$age" \
+    --arg rate "$rate" \
+    --arg status "$status" \
+    --arg rate_description "$rate_description" \
+    --arg counts_description "$counts_description" \
+    --arg status_description "$status_description" \
+    --arg history_description "$history_description" '
+    def targets: [.targets[] | {datasource,editorMode,expr,hide,legendFormat,range,refId,instant}];
+    ([.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171 or .id == 172)] | length == 4)
+    and ([.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171) | .id] | sort == [168,169,170,171])
+    and ([.panels[].id] | index(172) == null)
+    and any(.panels[];
+      .id == 168
+      and .title == "Alpenglow vote inclusion rate — last 10 minutes"
+      and .description == $rate_description
+      and .type == "stat"
+      and .gridPos == {"h":4,"w":6,"x":0,"y":55}
+      and .fieldConfig.defaults.unit == "percent"
+      and .fieldConfig.defaults.noValue == "No vote opportunities in the last 10 minutes"
+      and .fieldConfig.defaults.mappings == []
+      and (targets == [{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":$rate,"hide":false,"legendFormat":"Alpenglow vote inclusion rate — last 10 minutes","range":false,"refId":"A","instant":true}])
+    )
+    and any(.panels[];
+      .id == 169
+      and .title == "Alpenglow vote counts — last 10 minutes"
+      and .description == $counts_description
+      and .type == "stat"
+      and .gridPos == {"h":4,"w":12,"x":6,"y":55}
+      and .fieldConfig.defaults.unit == "none"
+      and .fieldConfig.defaults.noValue == "No recent samples"
+      and .fieldConfig.defaults.mappings == []
+      and (targets == [
+        {"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":("round(" + $included + ")"),"hide":false,"legendFormat":"Included","range":false,"refId":"A","instant":true},
+        {"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":("round(" + $expected + ")"),"hide":false,"legendFormat":"Estimated possible","range":false,"refId":"B","instant":true},
+        {"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":("round(" + $missed + ")"),"hide":false,"legendFormat":"Estimated missed","range":false,"refId":"C","instant":true}
+      ])
+    )
+    and any(.panels[];
+      .id == 170
+      and .title == "Alpenglow collection status"
+      and .description == $status_description
+      and .type == "stat"
+      and .gridPos == {"h":4,"w":6,"x":18,"y":55}
+      and .interval == "2s"
+      and .fieldConfig.defaults.unit == "none"
+      and .fieldConfig.defaults.noValue == "No recent samples"
+      and .fieldConfig.defaults.mappings == [{"options":{
+        "1":{"color":"orange","index":0,"text":"Collecting / latest gap unattributed"},
+        "2":{"color":"green","index":1,"text":"Current gap attributed"},
+        "3":{"color":"blue","index":2,"text":"No vote opportunities in the last 10 minutes"},
+        "4":{"color":"red","index":3,"text":"Stale — last sample older than 5 seconds"}
+      },"type":"value"}]
+      and (targets == [
+        {"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":$ready,"hide":true,"legendFormat":"Ready","range":false,"refId":"A","instant":true},
+        {"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":$age,"hide":true,"legendFormat":"Sample age","range":false,"refId":"B","instant":true},
+        {"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":$expected,"hide":true,"legendFormat":"Estimated opportunities","range":false,"refId":"C","instant":true},
+        {"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":$status,"hide":false,"legendFormat":"Collection status","range":false,"refId":"D","instant":true}
+      ])
+    )
+    and any(.panels[];
+      .id == 171
+      and .title == "Alpenglow inclusion rate history"
+      and .description == $history_description
+      and .type == "timeseries"
+      and .gridPos == {"h":8,"w":24,"x":0,"y":59}
+      and .fieldConfig.defaults.unit == "percent"
+      and .fieldConfig.defaults.noValue == "No vote opportunities in the last 10 minutes"
+      and .fieldConfig.defaults.custom.spanNulls == false
+      and .fieldConfig.defaults.mappings == []
+      and (targets == [{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":$rate,"hide":false,"legendFormat":"Inclusion rate","range":true,"refId":"A","instant":false}])
+    )
+  ' "$file" >/dev/null || fail "$label does not contain the canonical schema-v3 Alpenglow panels"
+}
+
 migrate_and_assert() {
   local input="$1"
   local label="$2"
@@ -27,6 +180,7 @@ migrate_and_assert() {
 
   jq '[.panels[] | select(.id == 61 or .id == 121 or .id == 126)]' "$input" >"$tower_before"
   jq -f "$enhancement" "$input" >"$output"
+  assert_alpenglow_v3 "$output" "$label migration"
   jq -e '
     [.panels[].id] as $ids
     | ($ids | length) == ($ids | unique | length)
@@ -287,88 +441,9 @@ jq -e '
   and ([.panels[] | select((.title // "") | test("Votor participation"; "i"))] | length == 0)
 ' "$dashboard" >/dev/null || fail 'dashboard does not isolate Tower credits or label Alpenglow reward accounting correctly'
 
-selector='{cluster=~"$cluster",genesis=~"$genesis",consensus="alpenglow",pubkey="$pubkey",vote_account=~"$vote_account",schema="3"}'
-included="increase(alpenglow_observed_included_total${selector}[10m])"
-expected="increase(alpenglow_observed_expected_total${selector}[10m])"
-missed="increase(alpenglow_observed_missed_total${selector}[10m])"
-ready="alpenglow_observed_ready${selector}"
-age="time() - timestamp(alpenglow_observed_observed_slot${selector})"
-disclosure='RPC-derived estimate using a bounded reference cohort; not direct certificate telemetry'
-
-jq -e \
-  --arg included "$included" \
-  --arg expected "$expected" \
-  --arg missed "$missed" \
-  --arg ready "$ready" \
-  --arg age "$age" \
-  --arg disclosure "$disclosure" '
-  any(.panels[];
-    .id == 168
-    and .title == "Alpenglow vote inclusion rate — last 10 minutes"
-    and .type == "stat"
-    and .gridPos == {"h": 4, "w": 6, "x": 0, "y": 55}
-    and .fieldConfig.defaults.unit == "percent"
-    and .fieldConfig.defaults.noValue == "No vote opportunities in the last 10 minutes"
-    and (.description | contains($disclosure))
-    and (.targets[0].expr == ("(100 * " + $included + " / " + $expected + ") and on(cluster,genesis,consensus,pubkey,vote_account,schema) (" + $expected + " > 0)"))
-  )
-  and any(.panels[];
-    .id == 169
-    and .title == "Alpenglow vote counts — last 10 minutes"
-    and .type == "stat"
-    and .gridPos == {"h": 4, "w": 12, "x": 6, "y": 55}
-    and .fieldConfig.defaults.noValue == "No recent samples"
-    and (.description | contains($disclosure))
-    and ([.targets[].legendFormat] == ["Included", "Estimated possible", "Estimated missed"])
-    and ([.targets[].expr] == ["round(" + $included + ")", "round(" + $expected + ")", "round(" + $missed + ")"])
-  )
-  and any(.panels[];
-    .id == 170
-    and .title == "Alpenglow collection status"
-    and .type == "stat"
-    and .gridPos == {"h": 4, "w": 6, "x": 18, "y": 55}
-    and .fieldConfig.defaults.noValue == "No recent samples"
-    and (.description | contains($disclosure))
-    and ([.targets[].expr] | index($ready) != null)
-    and ([.targets[].expr] | index($age) != null)
-    and ([.targets[].expr] | index($expected) != null)
-    and ([.targets[].expr] | join(" ") | contains("(" + $age + ") > 5"))
-    and ([.targets[].expr] | join(" ") | contains("(" + $age + ") <= 5"))
-    and (.targets[] | select(.refId == "D") | .expr | contains("+ 4"))
-    and (.targets[] | select(.refId == "D") | .expr | contains("+ 3"))
-    and (.targets[] | select(.refId == "D") | .expr | contains("+ 2"))
-    and (.targets[] | select(.refId == "D") | .expr | contains("+ 1"))
-    and ([.fieldConfig.defaults.mappings[]?.options | .. | strings] | any(. == "Current gap attributed"))
-    and ([.fieldConfig.defaults.mappings[]?.options | .. | strings] | any(. == "Collecting / latest gap unattributed"))
-    and ([.fieldConfig.defaults.mappings[]?.options | .. | strings] | any(. == "No vote opportunities in the last 10 minutes"))
-    and ([.fieldConfig.defaults.mappings[]?.options | .. | strings] | any(. == "Stale — last sample older than 5 seconds"))
-  )
-  and any(.panels[];
-    .id == 171
-    and .title == "Alpenglow inclusion rate history"
-    and .type == "timeseries"
-    and .gridPos == {"h": 8, "w": 24, "x": 0, "y": 59}
-    and .fieldConfig.defaults.unit == "percent"
-    and .fieldConfig.defaults.custom.spanNulls == false
-    and (.description | contains($disclosure))
-    and (.targets[0].expr == ("(100 * " + $included + " / " + $expected + ") and on(cluster,genesis,consensus,pubkey,vote_account,schema) (" + $expected + " > 0)"))
-  )
-  and ([.panels[].id] | index(172) == null)
-  and ([.panels[] | select((.title // "") | startswith("Alpenglow"))] | all(.description | contains($disclosure)))
-  and ([.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171) | .targets[].expr] | all(.[];
-    contains("cluster=~\"$cluster\"")
-    and contains("genesis=~\"$genesis\"")
-    and contains("consensus=\"alpenglow\"")
-    and contains("pubkey=\"$pubkey\"")
-    and contains("vote_account=~\"$vote_account\"")
-    and contains("schema=\"3\"")
-    and (contains("clamp_max") | not)
-    and (contains("nodemonitor_alpenglowObserved") | not)
-  ))
-  and ([.panels[] | select(.id == 168 or .id == 169 or .id == 171) | .targets[].expr] | all(.[];
-    contains("alpenglow_observed_ready") | not
-  ))
-' "$dashboard" >/dev/null || fail 'dashboard does not expose the schema-v3 Alpenglow operator view'
+assert_status_semantics
+assert_promql_semantics_if_available
+assert_alpenglow_v3 "$dashboard" 'canonical dashboard'
 
 jq -f "$transform" "$dashboard" >"$transformed"
 cmp -s "$dashboard" "$transformed" || fail 'dashboard optimization is not idempotent'
@@ -384,36 +459,79 @@ jq '
 ' "$dashboard" >"$unmigrated"
 migrate_and_assert "$unmigrated" 'absent-alpenglow-panels'
 
-jq '
-  .panels |= map(
-    select(.id != 170 and .id != 172)
-    | if .id == 168 then .title = "Alpenglow vote inclusion rate"
-      elif .id == 169 then .title = "Alpenglow vote counts"
-      else .
-      end
-  )
+jq -e '
+  ([.[].targets[].expr] | any(contains("nodemonitor_alpenglowObservedReady")))
+  and ([.[].targets[].expr] | any(contains("nodemonitor_alpenglowObservedIncluded")))
+  and ([.[].targets[].expr] | any(contains("nodemonitor_alpenglowObservedExpected")))
+  and ([.[].description] | all(length > 0))
+  and (map(.gridPos) == [{"h":4,"w":8,"x":0,"y":55},{"h":4,"w":16,"x":8,"y":55},{"h":8,"w":24,"x":0,"y":59}])
+' "$repo_dir/tests/fixtures/dashboard-schema-v2-alpenglow-panels.json" >/dev/null \
+  || fail 'schema-v2 fixture is not a genuine readiness-gated legacy panel set'
+
+jq -e '
+  ([.[].targets[].expr] | any(contains("nodemonitor_alpenglowObservedReady")))
+  and ([.[].targets[].expr] | any(contains("nodemonitor_alpenglowObservedUnattributed")))
+  and ([.[].targets[].expr] | any(contains("nodemonitor_alpenglowObservedReferences")))
+  and ([.[].targets[].expr] | any(contains("nodemonitor_alpenglowObservedSlot")))
+  and ([.[].fieldConfig.defaults.mappings[]?.options | .. | strings] | any(. == "Comparable interval"))
+  and ([.[].description] | all(length > 0))
+  and (map(.gridPos.y) == [55,55,55,55,58])
+' "$repo_dir/tests/fixtures/dashboard-legacy-alpenglow-panels.json" >/dev/null \
+  || fail 'legacy fixture is not the genuine five-panel observed-metric layout'
+
+jq -e '
+  length == 3
+  and ([.[].targets[].expr] | any(contains("nodemonitor_alpenglowObservedReady")))
+  and ([.[].targets[].expr] | any(contains("nodemonitor_alpenglowObservedIncluded")))
+  and ([.[].targets[].expr] | any(contains("nodemonitor_alpenglowObservedSlot")))
+  and ([.[].description] | all(length > 0))
+  and (map(.gridPos.y) == [55,55,58])
+' "$repo_dir/tests/fixtures/dashboard-partial-alpenglow-panels.json" >/dev/null \
+  || fail 'partial fixture is not a genuine incomplete legacy observed-metric layout'
+
+jq --slurpfile old "$repo_dir/tests/fixtures/dashboard-schema-v2-alpenglow-panels.json" '
+  .panels = ([.panels[] | select(.id as $id | ([168,169,170,171,172] | index($id)) == null)] + $old[0])
 ' "$dashboard" >"$migration_dir/schema-v2-three-panels-input.json"
 migrate_and_assert "$migration_dir/schema-v2-three-panels-input.json" 'schema-v2-three-panels'
 
-jq '
-  (.panels | map(select(.id == 168 or .id == 169 or .id == 170 or .id == 171))) as $alpenglow
-  | .panels = (
-      [.panels[]
-        | select(.id as $id | ([168, 169, 170, 171, 172] | index($id)) == null)
-        | if .gridPos.y >= 67 then .gridPos.y -= 1 else . end
-      ]
-      + [
-          ($alpenglow[] | select(.id == 168) | .title = "Alpenglow observed inclusion readiness" | .gridPos = {"h":3,"w":6,"x":0,"y":55}),
-          ($alpenglow[] | select(.id == 169) | .title = "Alpenglow unattributed accounts" | .gridPos = {"h":3,"w":6,"x":6,"y":55}),
-          ($alpenglow[] | select(.id == 170) | .title = "Alpenglow reference accounts" | .gridPos = {"h":3,"w":6,"x":12,"y":55}),
-          ($alpenglow[] | select(.id == 170) | .id = 172 | .title = "Alpenglow observed snapshot slot" | .gridPos = {"h":3,"w":6,"x":18,"y":55}),
-          ($alpenglow[] | select(.id == 171) | .title = "Alpenglow observed inclusion — inferred interval counts" | .gridPos = {"h":8,"w":24,"x":0,"y":58})
-        ]
-    )
+jq --slurpfile old "$repo_dir/tests/fixtures/dashboard-legacy-alpenglow-panels.json" '
+  .panels = (
+    [.panels[]
+      | select(.id as $id | ([168,169,170,171,172] | index($id)) == null)
+      | if .gridPos.y >= 67 then .gridPos.y -= 1 else . end
+    ] + $old[0]
+  )
 ' "$dashboard" >"$migration_dir/legacy-five-panels-input.json"
 migrate_and_assert "$migration_dir/legacy-five-panels-input.json" 'legacy-five-panels'
 
-jq '.panels |= map(select(.id != 169))' "$dashboard" >"$migration_dir/partial-panels-input.json"
+jq --slurpfile old "$repo_dir/tests/fixtures/dashboard-partial-alpenglow-panels.json" '
+  .panels = (
+    [.panels[]
+      | select(.id as $id | ([168,169,170,171,172] | index($id)) == null)
+      | if .gridPos.y >= 67 then .gridPos.y -= 1 else . end
+    ] + $old[0]
+  )
+' "$dashboard" >"$migration_dir/partial-panels-input.json"
 migrate_and_assert "$migration_dir/partial-panels-input.json" 'partial-alpenglow-panels'
+
+mutate_and_migrate() {
+  local label="$1"
+  local filter="$2"
+  local input="$migration_dir/${label}-input.json"
+  jq "$filter" "$dashboard" >"$input"
+  migrate_and_assert "$input" "$label"
+}
+
+mutate_and_migrate 'noncanonical-title' '(.panels[] | select(.id == 168) | .title) = "Wrong title"'
+mutate_and_migrate 'noncanonical-description' '(.panels[] | select(.id == 169) | .description) = "Wrong description"'
+mutate_and_migrate 'noncanonical-geometry' '(.panels[] | select(.id == 170) | .gridPos.w) = 5'
+mutate_and_migrate 'noncanonical-history-geometry' '(.panels[] | select(.id == 171) | .gridPos.y) = 60'
+mutate_and_migrate 'noncanonical-no-value' '(.panels[] | select(.id == 171) | .fieldConfig.defaults.noValue) = "Wrong no-value"'
+mutate_and_migrate 'noncanonical-mapping' '(.panels[] | select(.id == 170) | .fieldConfig.defaults.mappings[0].options["2"].text) = "Wrong mapping"'
+mutate_and_migrate 'noncanonical-rate-expression' '(.panels[] | select(.id == 168) | .targets[0].expr) = "vector(99)"'
+mutate_and_migrate 'noncanonical-count-expression' '(.panels[] | select(.id == 169) | .targets[1].expr) = "vector(99)"'
+mutate_and_migrate 'noncanonical-status-expression' '(.panels[] | select(.id == 170) | .targets[] | select(.refId == "D") | .expr) = "(0 * alpenglow_observed_ready{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}) + 9"'
+mutate_and_migrate 'noncanonical-history-expression' '(.panels[] | select(.id == 171) | .targets[0].expr) = "vector(99)"'
+mutate_and_migrate 'partial-schema-v3' '.panels |= map(select(.id != 169))'
 
 printf '%s\n' 'dashboard tests passed'
