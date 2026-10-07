@@ -207,7 +207,7 @@ Start from `telegraf/solana-monitoring.conf.example`. Replace `VALIDATOR_USER`, 
 | Input | Interval | Timeout | Purpose |
 | --- | --- | --- | --- |
 | legacy `monitor.sh` | `1m` | `1m` | Existing schema-v2 validator metrics |
-| standalone v3 collector | `2s` | `3s` | Shadow schema-v3 cumulative Alpenglow estimates |
+| standalone v3 collector | `2s` | `10s` | Shadow schema-v3 cumulative Alpenglow estimates |
 
 Validate before activation:
 
@@ -222,6 +222,10 @@ sudo -u telegraf telegraf \
 ```
 
 Do not configure `data_type = "integer"`; both collectors emit mixed Influx field types.
+Keep the v3 input's `collection_jitter = "0s"` and the community output's
+`flush_interval = "2s"` with `flush_jitter = "0s"`. Otherwise the global
+jitter and buffered output can make a healthy collector appear older than the
+dashboard's five-second freshness threshold.
 
 Activate and inspect:
 

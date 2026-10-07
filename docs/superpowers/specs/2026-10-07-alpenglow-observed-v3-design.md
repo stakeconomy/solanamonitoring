@@ -399,7 +399,7 @@ Each invocation performs one mandatory normal batch and at most one optional RPC
 
 Cold start snapshots only the monitored account, proves ownership, and may select cohort membership. Reference baselines are null until a later normal batch. A failed optional call invalidates only accounts that require its missing data: an existing clean monitored account plus at least one existing clean reference may still attribute the gap. If attribution remains possible, emit `ready=1`; otherwise emit `ready=0` and count the span once as unattributed. A same-invocation cohort repair adds new members in the explicit null-baseline form; they become usable only on a later snapshot. No path makes a third RPC call.
 
-The script writes stdout only after its atomic state rename succeeds. Telegraf uses a measured bounded `10s` fail-safe timeout so a valid full-epoch schedule refresh is not killed; the interval remains `2s`, and the non-blocking state lock makes overlapping scheduler launches exit quietly instead of running concurrently. This fail-safe does not relax shadow acceptance: production-shaped repeated timing still requires p99 runtime below `1.5s`.
+The script writes stdout only after its atomic state rename succeeds. Telegraf uses a measured bounded `10s` fail-safe timeout so a valid full-epoch schedule refresh is not killed; the interval remains `2s`, the v3 input overrides collection jitter to `0s`, and the community output flushes every `2s` with `0s` flush jitter. The non-blocking state lock makes overlapping scheduler launches exit quietly instead of running concurrently. This fail-safe does not relax shadow acceptance: production-shaped repeated timing still requires p99 runtime below `1.5s`.
 
 Install the standalone collector sudo rule before enabling its input. The v3 rule must include the exact production arguments, including the fixed state path, so Telegraf cannot choose another RPC destination, identity, vote account, state file, or parser setting:
 
@@ -416,9 +416,14 @@ Add the second input only after that validation:
 [[inputs.exec]]
   commands = ["/usr/bin/sudo -n -H -u VALIDATOR_USER -- /home/VALIDATOR_USER/solanamonitoring/scripts/alpenglow-observed-vote-inclusion-v3.sh --rpc-url http://127.0.0.1:8899 --identity VALIDATOR_IDENTITY --vote-account VALIDATOR_VOTE_ACCOUNT --state /home/VALIDATOR_USER/.config/solana/alpenglow-observed-vote-inclusion-v3.json --rpc-timeout 0.7 --reference-count 8 --rate-samples 20"]
   interval = "2s"
+  collection_jitter = "0s"
   timeout = "10s"
   data_format = "influx"
 ```
+
+The corresponding community `outputs.influxdb` block sets
+`flush_interval = "2s"` and `flush_jitter = "0s"`; a slower buffered output is
+incompatible with the five-second dashboard freshness contract.
 
 The existing one-minute `monitor.sh` input and sudo rule stay unchanged throughout shadow rollout.
 
@@ -536,7 +541,7 @@ Do not migrate v2 interval state into v3 cumulative totals. Rollback never copie
 18. Mandatory batch plus at most one optional call never makes a third RPC call; every fixture path remains below the `1.5s` p99 target in repeated local timing runs.
 19. Optional-call failure invalidates only dependent accounts and still attributes when an existing clean monitored account and reference remain.
 20. Exit codes/stdout/stderr match the exit contract, including `--help`, quiet lock contention, and optional-call warning behavior.
-21. Telegraf has a separate two-second input with a measured bounded `10s` fail-safe timeout, exact fixed arguments, and `0.7`-second RPC timeout; sudoers tests reject altered state, RPC URL, identity, or parser arguments while preserving the old monitor rule.
+21. Telegraf has a separate two-second input with zero collection jitter, a measured bounded `10s` fail-safe timeout, exact fixed arguments, and `0.7`-second RPC timeout; the community output flushes every two seconds without jitter, and sudoers tests reject altered state, RPC URL, identity, or parser arguments while preserving the old monitor rule.
 22. The legacy helper path and thirteen-positional-argument ABI remain unchanged during shadow; v3 uses the separate `-v3.sh` path.
 23. Changed identity or vote account discards old cohort/cache/learners; changed reference count adjusts membership deterministically even on a repeated slot; changed rate-sample threshold resets learners, forces an advancing span wholly unattributed, and on a repeated slot changes only config/learners without resetting totals.
 24. Dashboard uses exact schema-v3 ten-minute `increase()` queries, no clamp, bounded selectors, count rounding, instant-sample timestamp age, and a five-second stale threshold; zero-opportunity differs from stale collection.

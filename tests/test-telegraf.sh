@@ -38,6 +38,7 @@ actual = [
     {
         "commands": entry.get("commands"),
         "interval": entry.get("interval"),
+        "collection_jitter": entry.get("collection_jitter"),
         "timeout": entry.get("timeout"),
         "data_format": entry.get("data_format"),
     }
@@ -47,12 +48,14 @@ expected = [
     {
         "commands": [legacy_command],
         "interval": "1m",
+        "collection_jitter": None,
         "timeout": "1m",
         "data_format": "influx",
     },
     {
         "commands": [v3_command],
         "interval": "2s",
+        "collection_jitter": "0s",
         "timeout": "10s",
         "data_format": "influx",
     },
@@ -60,6 +63,18 @@ expected = [
 if actual != expected:
     print(f"expected exact exec inputs: {expected!r}", file=sys.stderr)
     print(f"actual exec inputs: {actual!r}", file=sys.stderr)
+    raise SystemExit(1)
+
+outputs = config.get("outputs", {}).get("influxdb", [])
+if len(outputs) != 1:
+    print(f"expected exactly one InfluxDB output, got: {outputs!r}", file=sys.stderr)
+    raise SystemExit(1)
+output = outputs[0]
+if output.get("flush_interval") != "2s" or output.get("flush_jitter") != "0s":
+    print(
+        "schema-v3 freshness requires output flush_interval='2s' and flush_jitter='0s'",
+        file=sys.stderr,
+    )
     raise SystemExit(1)
 PY
 
@@ -154,6 +169,9 @@ assert_literal "$installation" 'Omitted argument' 'installation docs must includ
 assert_literal "$installation" 'Appended argument' 'installation docs must include an appended-argument rejection command'
 assert_literal "$installation" 'Reordered arguments' 'installation docs must include a reordered-argument rejection command'
 assert_literal "$installation" 'at least 24 hours' 'installation docs must require a 24-hour shadow gate'
+# shellcheck disable=SC2016 # Markdown backticks are intentional literals.
+expected_timeout_row='| standalone v3 collector | `2s` | `10s` |'
+assert_literal "$installation" "$expected_timeout_row" 'installation docs must retain the ten-second v3 fail-safe timeout'
 assert_literal "$installation" 'exact Testnet genesis' 'installation docs must require the exact-genesis gate'
 assert_literal "$installation" 'Mainnet and Tower' 'installation docs must retain legacy-only collection outside Testnet Alpenglow'
 

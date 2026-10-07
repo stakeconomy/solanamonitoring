@@ -48,7 +48,7 @@ The production cadence and fixed parser settings are:
 - reference count: `8`
 - rate-learning samples: `20`
 
-The canonical dashboard refreshes every `5s` so its five-second freshness state is observable without a manual refresh. This increases dashboard query load; the tradeoff is intentional, while collector cadence remains `2s` and historical panels retain bounded resolution.
+The canonical dashboard refreshes every `5s` so its five-second freshness state is observable without a manual refresh. The v3 Telegraf input disables collection jitter, and the community output flushes every `2s` without flush jitter, so buffering does not manufacture stale status. This increases dashboard and output cadence; the tradeoff is intentional, while collector cadence remains `2s` and historical panels retain bounded resolution.
 - state: `/home/solana/.config/solana/alpenglow-observed-vote-inclusion-v3.json`
 
 Each invocation performs one mandatory JSON-RPC batch and at most one optional request. The collector takes a non-blocking lock, writes state to a same-directory temporary file, sets mode `0600`, and renames it atomically before emitting stdout. Lock contention exits successfully with no output and no state mutation.
