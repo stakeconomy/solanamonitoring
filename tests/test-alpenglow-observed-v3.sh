@@ -163,9 +163,9 @@ grep -q 'invalid existing v3 state' "$tmp/corrupt.err" || fail 'corrupt state mu
 [[ "$(sha256sum "$corrupt_state")" == "$corrupt_before" ]] || fail 'corrupt state must remain byte-identical'
 [[ "$(wc -l <"$call_log")" == "$corrupt_calls_before" ]] || fail 'corrupt state must make zero new RPC calls'
 
-other_identity='OtherNode11111111111111111111111111111111111'
-other_vote='OtherVote11111111111111111111111111111111111'
-for mutation in pubkey vote_account reference_count rate_samples monitored_node reference_pubkey; do
+other_identity='NewNode111111111111111111111111111111111111'
+other_vote='NewVote111111111111111111111111111111111111'
+for mutation in monitored_node reference_pubkey; do
   bound_state="$tmp/bound-$mutation.json"
   case "$mutation" in
     pubkey) jq --arg value "$other_identity" '.pubkey = $value' "$state" >"$bound_state" ;;
@@ -250,5 +250,354 @@ export PATH="$old_path"
 if compgen -G "$tmp/.alpenglow-observed-v3.*" >/dev/null; then
   fail 'atomic rename failure must clean its temporary state file'
 fi
+
+# Task 2 vertical slice: an existing cold state must retain its cohort and initialize
+# the null reference baseline from the next mandatory snapshot without a third RPC.
+unset MOCK_ALPENGLOW_V3_SCENARIO
+cohort_state="$tmp/cohort-advance.json"
+cohort_log="$tmp/cohort-advance-calls.jsonl"
+export MOCK_ALPENGLOW_V3_CALL_LOG="$cohort_log"
+run_capture "$tmp/cohort-cold.out" "$tmp/cohort-cold.err" \
+  --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$cohort_state"
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'cohort cold start must succeed'
+: >"$cohort_log"
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/cohort-next-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000001,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"123456","previousCredits":"123000"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"123456","previousCredits":"123000"}]}},"leader_schedule":{"$identity":[],"ReferenceNode1111111111111111111111111111111":[]}}
+JSON
+run_capture "$tmp/cohort-next.out" "$tmp/cohort-next.err" \
+  --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$cohort_state"
+unset MOCK_ALPENGLOW_V3_FIXTURE
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'existing cohort snapshot must advance'
+[[ "$(wc -l <"$cohort_log")" -le 2 ]] || fail 'existing cohort snapshot must make at most two RPC calls'
+jq -e '
+  .reference_votes == ["ReferenceVote1111111111111111111111111111111"] and
+  .accounts["ReferenceVote1111111111111111111111111111111"].total == "123456" and
+  .accounts["ReferenceVote1111111111111111111111111111111"].slot == "449000001"
+' "$cohort_state" >/dev/null || fail 'existing cohort must remain stable and initialize its null baseline'
+
+# Exact object parsing keeps numeric epochs and decimal-string credits above jq's exact range.
+export MOCK_ALPENGLOW_V3_SCENARIO=numeric-epoch-large-credit
+large_state="$tmp/numeric-epoch-large-credit.json"
+run_capture "$tmp/numeric-epoch-large-credit.out" "$tmp/numeric-epoch-large-credit.err" \
+  --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$large_state"
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'numeric object epoch and large string credits must be accepted exactly'
+jq -e --arg vote "$vote" '.epoch == "1052" and .accounts[$vote].total == "9007199254740993"' "$large_state" >/dev/null ||
+  fail 'large string credits must survive without jq numeric conversion'
+unset MOCK_ALPENGLOW_V3_SCENARIO
+
+# Deterministic attributed transition: own count is included, the clean reference
+# maximum defines expected, and cumulative totals advance exactly once.
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/accounting-fixture.json"
+accounting_state="$tmp/accounting-state.json"
+cat >"$accounting_state" <<JSON
+{"version":3,"genesis":"4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY","consensus":"alpenglow","pubkey":"$identity","vote_account":"$vote","config":{"reference_count":1,"rate_samples":20},"schedule":{"slots_per_epoch":432000,"leader_schedule_slot_offset":432000,"warmup":true,"first_normal_epoch":14,"first_normal_slot":524256},"epoch":"1052","reference_votes":["ReferenceVote1111111111111111111111111111111"],"accounts":{"$vote":{"node":"$identity","total":"100","slot":"449000000","gcd":"2","samples":1,"increment":"2"},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","total":"200","slot":"449000000","gcd":"2","samples":1,"increment":"2"}},"leader_schedule_epoch":"1052","leader_slots":{"$identity":[],"ReferenceNode1111111111111111111111111111111":[]},"totals":{"included":"0","expected":"0","missed":"0","unattributed_slots":"0"},"last_attributed_slot":"0"}
+JSON
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000002,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"102","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"204","previousCredits":"0"}]}},"leader_schedule":{}}
+JSON
+run_capture "$tmp/accounting.out" "$tmp/accounting.err" \
+  --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$accounting_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'clean known gap must succeed'
+grep -q 'included_total=1i,expected_total=2i,missed_total=1i.*ready=1i.*usable_references=1i' "$tmp/accounting.out" ||
+  fail 'clean known gap must emit cumulative included/expected/missed totals'
+jq -e '.totals == {included:"1",expected:"2",missed:"1",unattributed_slots:"0"} and .last_attributed_slot == "449000002" and all(.accounts[]; .slot == "449000002")' "$accounting_state" >/dev/null ||
+  fail 'attributed transition must persist exact totals and aligned baselines'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# Epoch rollover accounts the cross-epoch span once, resets learners/baselines,
+# and retains the freshly fetched current-epoch leader cache.
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/epoch-fixture.json"
+epoch_state="$tmp/epoch-state.json"
+cat >"$epoch_state" <<JSON
+{"version":3,"genesis":"4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY","consensus":"alpenglow","pubkey":"$identity","vote_account":"$vote","config":{"reference_count":1,"rate_samples":20},"schedule":{"slots_per_epoch":432000,"leader_schedule_slot_offset":432000,"warmup":true,"first_normal_epoch":14,"first_normal_slot":524256},"epoch":"1052","reference_votes":["ReferenceVote1111111111111111111111111111111"],"accounts":{"$vote":{"node":"$identity","total":"100","slot":"449372255","gcd":"2","samples":20,"increment":"2"},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","total":"200","slot":"449372255","gcd":"2","samples":20,"increment":"2"}},"leader_schedule_epoch":"1052","leader_slots":{"$identity":[],"ReferenceNode1111111111111111111111111111111":[]},"totals":{"included":"7","expected":"9","missed":"2","unattributed_slots":"3"},"last_attributed_slot":"449372250"}
+JSON
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449372256,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1053","credits":"101","previousCredits":"100"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1053","credits":"201","previousCredits":"200"}]}},"leader_schedule":{"$identity":[],"ReferenceNode1111111111111111111111111111111":[]}}
+JSON
+run_capture "$tmp/epoch.out" "$tmp/epoch.err" \
+  --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$epoch_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'epoch rollover must succeed'
+jq -e --arg identity "$identity" '
+  .epoch == "1053" and .totals == {included:"7",expected:"9",missed:"2",unattributed_slots:"4"} and
+  .leader_schedule_epoch == "1053" and (.leader_slots|has($identity)) and
+  all(.accounts[]; .slot == "449372256" and .gcd == null and .samples == 0 and .increment == null)
+' "$epoch_state" >/dev/null || fail 'epoch rollover must reset learners and keep the current cache'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# Bounded discovery scans 600 active candidates in one optional response, excludes
+# the monitored vote, and still snapshots only the monitored account on cold start.
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/bounded-fixture.json"
+bounded_state="$tmp/bounded-state.json"
+bounded_log="$tmp/bounded-calls.jsonl"
+export MOCK_ALPENGLOW_V3_CALL_LOG="$bounded_log"
+jq -cn --arg vote "$vote" --arg identity "$identity" '
+  def ch($n): "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"[$n:$n+1];
+  {slot:449000000,accounts:{($vote):{node:$identity,history:[{epoch:"1052",credits:"10",previousCredits:"0"}]}},
+   vote_accounts:([range(0;600) as $i|{votePubkey:("CandidateVote111111111111111111111"+ch(($i/58|floor))+ch($i%58)),nodePubkey:("CandidateNode111111111111111111111"+ch(($i/58|floor))+ch($i%58))}]+[{votePubkey:$vote,nodePubkey:$identity}])}
+' >"$MOCK_ALPENGLOW_V3_FIXTURE"
+run_capture "$tmp/bounded.out" "$tmp/bounded.err" \
+  --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$bounded_state"
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail '600-account bounded discovery must succeed'
+[[ "$(wc -l <"$bounded_log")" -eq 2 ]] || fail 'bounded discovery must use exactly mandatory plus one optional RPC call'
+jq -e --arg vote "$vote" '.reference_votes|length==8 and index($vote)==null' "$bounded_state" >/dev/null ||
+  fail 'bounded discovery must select eight active non-own references'
+first_bounded_payload="$(sed -n '1p' "$bounded_log")"
+jq -e 'map(select(.id=="v3-accounts"))[0].params[0]|length==1' <<<"$first_bounded_payload" >/dev/null ||
+  fail 'cold bounded discovery must snapshot only the monitored account'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# Exact history parsing accepts a migration marker followed by ordered object data
+# and accepts legacy safe integer tuples without converting decimal-string credits.
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/history-fixture.json"
+history_state="$tmp/history-state.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000000,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"18446744073709551615","credits":"18446744073709551615","previousCredits":"18446744073709551615"},[1051,7,5],{"epoch":1052,"credits":"9007199254740993","previousCredits":"7"}]}}}
+JSON
+run_capture "$tmp/history.out" "$tmp/history.err" \
+  --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$history_state"
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'marker and legacy/object mixed history must parse'
+jq -e --arg vote "$vote" '.accounts[$vote].total=="9007199254740993" and .epoch=="1052"' "$history_state" >/dev/null ||
+  fail 'exact history parsing must retain the latest large decimal string'
+
+# Unsorted/duplicate epochs fail closed and cannot create state.
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000000,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"10","previousCredits":"0"},{"epoch":"1052","credits":"11","previousCredits":"10"}]}}}
+JSON
+bad_history_state="$tmp/bad-history-state.json"
+run_capture "$tmp/bad-history.out" "$tmp/bad-history.err" \
+  --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$bad_history_state"
+[[ "$CAPTURE_STATUS" -eq 1 && ! -s "$tmp/bad-history.out" && ! -e "$bad_history_state" ]] ||
+  fail 'duplicate epoch history must fail closed without state'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# Reward-delay boundary: first included slot epoch+7 is unattributed; epoch+8 is clean.
+boundary_state="$tmp/boundary-state.json"
+cat >"$boundary_state" <<JSON
+{"version":3,"genesis":"4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY","consensus":"alpenglow","pubkey":"$identity","vote_account":"$vote","config":{"reference_count":1,"rate_samples":20},"schedule":{"slots_per_epoch":432000,"leader_schedule_slot_offset":432000,"warmup":true,"first_normal_epoch":14,"first_normal_slot":524256},"epoch":"1052","reference_votes":["ReferenceVote1111111111111111111111111111111"],"accounts":{"$vote":{"node":"$identity","total":"10","slot":"448940262","gcd":"1","samples":1,"increment":"1"},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","total":"20","slot":"448940262","gcd":"1","samples":1,"increment":"1"}},"leader_schedule_epoch":"1052","leader_slots":{"$identity":[],"ReferenceNode1111111111111111111111111111111":[]},"totals":{"included":"0","expected":"0","missed":"0","unattributed_slots":"0"},"last_attributed_slot":"0"}
+JSON
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/boundary-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":448940263,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"11","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"21","previousCredits":"0"}]}}}
+JSON
+run_capture "$tmp/boundary7.out" "$tmp/boundary7.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$boundary_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'epoch+7 boundary snapshot must succeed conservatively'
+jq -e '.totals.unattributed_slots=="1" and .last_attributed_slot=="0"' "$boundary_state" >/dev/null || fail 'epoch+7 must be unattributed'
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":448940264,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"12","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"22","previousCredits":"0"}]}}}
+JSON
+run_capture "$tmp/boundary8.out" "$tmp/boundary8.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$boundary_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'epoch+8 boundary snapshot must succeed'
+grep -q 'included_total=1i,expected_total=1i,missed_total=0i.*ready=1i' "$tmp/boundary8.out" || fail 'epoch+8 must be attributed'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# A monitored cumulative decrease is fatal even when a rate-sample configuration
+# change would otherwise force a conservative reset.
+decrease_state="$tmp/decrease-state.json"
+cp "$accounting_state" "$decrease_state"
+decrease_before="$(sha256sum "$decrease_state")"
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/decrease-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000003,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"1","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"205","previousCredits":"0"}]}},"leader_schedule":{"$identity":[],"ReferenceNode1111111111111111111111111111111":[]}}
+JSON
+run_capture "$tmp/decrease.out" "$tmp/decrease.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$decrease_state" --reference-count 1 --rate-samples 19
+[[ "$CAPTURE_STATUS" -eq 1 && ! -s "$tmp/decrease.out" ]] || fail 'monitored decrease with config change must fail closed'
+[[ "$(sha256sum "$decrease_state")" == "$decrease_before" ]] || fail 'monitored decrease must leave state byte-identical'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# One-slot learner promotion survives restart; a later multi-slot contradiction
+# becomes unattributed and restarts recovery without rewriting historical totals.
+learner_state="$tmp/learner-state.json"
+cat >"$learner_state" <<JSON
+{"version":3,"genesis":"4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY","consensus":"alpenglow","pubkey":"$identity","vote_account":"$vote","config":{"reference_count":1,"rate_samples":20},"schedule":{"slots_per_epoch":432000,"leader_schedule_slot_offset":432000,"warmup":true,"first_normal_epoch":14,"first_normal_slot":524256},"epoch":"1052","reference_votes":["ReferenceVote1111111111111111111111111111111"],"accounts":{"$vote":{"node":"$identity","total":"100","slot":"449000010","gcd":null,"samples":0,"increment":null},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","total":"200","slot":"449000010","gcd":null,"samples":0,"increment":null}},"leader_schedule_epoch":"1052","leader_slots":{"$identity":[],"ReferenceNode1111111111111111111111111111111":[]},"totals":{"included":"0","expected":"0","missed":"0","unattributed_slots":"0"},"last_attributed_slot":"0"}
+JSON
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/learner-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000011,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"102","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"204","previousCredits":"0"}]}}}
+JSON
+run_capture "$tmp/learner-promote.out" "$tmp/learner-promote.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$learner_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'one-slot learner promotion must succeed'
+jq -e --arg vote "$vote" '.accounts[$vote].increment=="2" and .accounts[$vote].samples==1 and .totals.included=="1"' "$learner_state" >/dev/null || fail 'one-slot learner must promote and count immediately'
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000013,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"105","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"212","previousCredits":"0"}]}}}
+JSON
+run_capture "$tmp/learner-contradict.out" "$tmp/learner-contradict.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$learner_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'multi-slot contradiction recovery must succeed'
+jq -e --arg vote "$vote" '.accounts[$vote].gcd=="3" and .accounts[$vote].samples==1 and .accounts[$vote].increment==null and .totals.included=="1" and .totals.unattributed_slots=="2"' "$learner_state" >/dev/null || fail 'contradiction must restart learner and preserve history'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# Invalid leader-cache keys normalize only that subsection; fetched own leadership
+# contaminates the gap while preserving counters and advancing aligned baselines.
+leader_state="$tmp/leader-state.json"
+cp "$accounting_state" "$leader_state"
+jq '.leader_slots.ExtraNode111111111111111111111111111111111=[]' "$leader_state" >"$tmp/leader-state-new.json" && mv "$tmp/leader-state-new.json" "$leader_state"
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/leader-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000004,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"106","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"208","previousCredits":"0"}]}},"leader_schedule":{"$identity":[59747],"ReferenceNode1111111111111111111111111111111":[]}}
+JSON
+run_capture "$tmp/leader.out" "$tmp/leader.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$leader_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'invalid cache normalization and refetch must succeed'
+jq -e --arg identity "$identity" '.leader_schedule_epoch=="1052" and (.leader_slots|keys|length)==2 and (.leader_slots[$identity]|length)==1 and .totals.unattributed_slots=="2" and all(.accounts[];.slot=="449000004")' "$leader_state" >/dev/null || fail 'own leader contamination must be unattributed with repaired cache'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# A malformed reference is removed and repaired in the same invocation with an
+# explicit null baseline; no third RPC is allowed.
+repair_state="$tmp/repair-state.json"
+cp "$accounting_state" "$repair_state"
+repair_log="$tmp/repair-calls.jsonl"; : >"$repair_log"; export MOCK_ALPENGLOW_V3_CALL_LOG="$repair_log"
+new_ref='RepairVote111111111111111111111111111111111'
+new_node='RepairNode111111111111111111111111111111111'
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/repair-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000004,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"104","previousCredits":"0"}]}},"vote_accounts":[{"votePubkey":"$new_ref","nodePubkey":"$new_node"}]}
+JSON
+run_capture "$tmp/repair.out" "$tmp/repair.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$repair_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'malformed reference repair must succeed'
+[[ "$(wc -l <"$repair_log")" -eq 2 ]] || fail 'same-invocation repair must use at most two calls'
+jq -e --arg ref "$new_ref" '.reference_votes==[$ref] and .accounts[$ref]=={node:null,total:null,slot:null,gcd:null,samples:0,increment:null}' "$repair_state" >/dev/null || fail 'repair must install a null-baseline member'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# Identity/vote rotation snapshots only the new monitored account and resets every
+# old cohort/cache/learner/cumulative field after ownership proof.
+rotation_state="$tmp/rotation-state.json"
+cp "$accounting_state" "$rotation_state"
+rotation_log="$tmp/rotation-calls.jsonl"; : >"$rotation_log"; export MOCK_ALPENGLOW_V3_CALL_LOG="$rotation_log"
+export MOCK_ALPENGLOW_V3_IDENTITY="$other_identity" MOCK_ALPENGLOW_V3_VOTE="$other_vote" MOCK_ALPENGLOW_V3_FIXTURE="$tmp/rotation-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000010,"accounts":{"$other_vote":{"node":"$other_identity","history":[{"epoch":"1052","credits":"50","previousCredits":"0"}]}}}
+JSON
+run_capture "$tmp/rotation.out" "$tmp/rotation.err" --rpc-url http://mock.invalid --identity "$other_identity" --vote-account "$other_vote" --state "$rotation_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'valid identity/vote rotation must cold replace state'
+jq -e --arg identity "$other_identity" --arg vote "$other_vote" '.pubkey==$identity and .vote_account==$vote and .reference_votes==[] and (.accounts|keys)==[$vote] and .totals=={included:"0",expected:"0",missed:"0",unattributed_slots:"0"} and .leader_schedule_epoch==null' "$rotation_state" >/dev/null || fail 'rotation must discard old cohort/cache/learners/totals'
+rotation_payload="$(sed -n '1p' "$rotation_log")"
+jq -e --arg vote "$other_vote" 'map(select(.id=="v3-accounts"))[0].params[0]==[$vote]' <<<"$rotation_payload" >/dev/null || fail 'rotation mandatory snapshot must contain only the new vote account'
+export MOCK_ALPENGLOW_V3_IDENTITY="$identity" MOCK_ALPENGLOW_V3_VOTE="$vote"
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# A failed optional cohort-repair call warns but does not poison an otherwise
+# attributable gap using the existing clean monitored/reference pair.
+optional_state="$tmp/optional-isolation-state.json"
+cp "$accounting_state" "$optional_state"
+jq '.config.reference_count=2' "$optional_state" >"$tmp/optional-isolation-new.json" && mv "$tmp/optional-isolation-new.json" "$optional_state"
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/optional-isolation-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000004,"optional_fail":"getVoteAccounts","accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"106","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"208","previousCredits":"0"}]}}}
+JSON
+run_capture "$tmp/optional-isolation.out" "$tmp/optional-isolation.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$optional_state" --reference-count 2
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'optional repair failure must not fail a valid mandatory snapshot'
+grep -q 'warning: optional cohort RPC failed' "$tmp/optional-isolation.err" || fail 'optional repair failure must emit a bounded warning'
+grep -q 'ready=1i.*usable_references=1i' "$tmp/optional-isolation.out" || fail 'optional repair failure must preserve existing attribution'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# Twenty-sample promotion, clean zero/zero attribution, own-inclusive denominator,
+# and deterministic rate-sample resets all preserve cumulative invariants.
+sample_state="$tmp/sample-state.json"
+cat >"$sample_state" <<JSON
+{"version":3,"genesis":"4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY","consensus":"alpenglow","pubkey":"$identity","vote_account":"$vote","config":{"reference_count":1,"rate_samples":20},"schedule":{"slots_per_epoch":432000,"leader_schedule_slot_offset":432000,"warmup":true,"first_normal_epoch":14,"first_normal_slot":524256},"epoch":"1052","reference_votes":["ReferenceVote1111111111111111111111111111111"],"accounts":{"$vote":{"node":"$identity","total":"100","slot":"449000020","gcd":"2","samples":19,"increment":null},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","total":"200","slot":"449000020","gcd":"2","samples":19,"increment":null}},"leader_schedule_epoch":"1052","leader_slots":{"$identity":[],"ReferenceNode1111111111111111111111111111111":[]},"totals":{"included":"0","expected":"0","missed":"0","unattributed_slots":"0"},"last_attributed_slot":"0"}
+JSON
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/sample-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000022,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"102","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"204","previousCredits":"0"}]}}}
+JSON
+run_capture "$tmp/sample20.out" "$tmp/sample20.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$sample_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'twentieth learner sample must succeed'
+jq -e --arg vote "$vote" '.accounts[$vote].samples==20 and .accounts[$vote].increment=="2" and .totals=={included:"1",expected:"2",missed:"1",unattributed_slots:"0"}' "$sample_state" >/dev/null || fail 'twentieth sample must promote and count immediately'
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000023,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"102","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"204","previousCredits":"0"}]}}}
+JSON
+run_capture "$tmp/zero-gap.out" "$tmp/zero-gap.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$sample_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'clean zero-count gap must succeed'
+grep -q 'ready=1i.*last_attributed_slot=449000023i' "$tmp/zero-gap.out" || fail 'clean zero/zero gap must be attributed'
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000025,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"106","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"206","previousCredits":"0"}]}}}
+JSON
+run_capture "$tmp/own-denominator.out" "$tmp/own-denominator.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$sample_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'own-inclusive denominator gap must succeed'
+jq -e '.totals=={included:"3",expected:"4",missed:"1",unattributed_slots:"0"}' "$sample_state" >/dev/null || fail 'own count must bound expected and prevent rates above 100 percent'
+run_capture "$tmp/rate-repeat.out" "$tmp/rate-repeat.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$sample_state" --reference-count 1 --rate-samples 10
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'repeated-slot rate-samples change must succeed'
+jq -e '.config.rate_samples==10 and all(.accounts[];.gcd==null and .samples==0 and .increment==null) and .totals=={included:"3",expected:"4",missed:"1",unattributed_slots:"0"}' "$sample_state" >/dev/null || fail 'repeated config change must reset only learner semantics'
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000026,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"107","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"207","previousCredits":"0"}]}}}
+JSON
+run_capture "$tmp/rate-advance.out" "$tmp/rate-advance.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$sample_state" --reference-count 1 --rate-samples 11
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'advancing rate-samples change must succeed conservatively'
+jq -e '.config.rate_samples==11 and .totals.unattributed_slots=="1" and all(.accounts[];.slot=="449000026" and .gcd==null and .samples==0 and .increment==null)' "$sample_state" >/dev/null || fail 'advancing config change must count the whole span unattributed once'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# Reference-count increases add null members on a repeated snapshot and decreases
+# trim deterministically without resetting counters or retained baselines.
+refconfig_state="$tmp/refconfig-state.json"
+cp "$accounting_state" "$refconfig_state"
+extra_ref='ExtraVote1111111111111111111111111111111111'
+extra_node='ExtraNode1111111111111111111111111111111111'
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/refconfig-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000002,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"102","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"204","previousCredits":"0"}]}},"vote_accounts":[{"votePubkey":"$extra_ref","nodePubkey":"$extra_node"}]}
+JSON
+run_capture "$tmp/ref-raise.out" "$tmp/ref-raise.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$refconfig_state" --reference-count 2
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'reference-count raise on repeated slot must succeed'
+jq -e --arg extra "$extra_ref" '.config.reference_count==2 and .reference_votes[1]==$extra and .accounts[$extra].total==null and .totals=={included:"1",expected:"2",missed:"1",unattributed_slots:"0"}' "$refconfig_state" >/dev/null || fail 'reference-count raise must preserve state and append a null member'
+run_capture "$tmp/ref-lower.out" "$tmp/ref-lower.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$refconfig_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'reference-count lower on repeated slot must succeed'
+jq -e '.config.reference_count==1 and (.reference_votes|length)==1 and (.accounts|keys|length)==2 and .totals=={included:"1",expected:"2",missed:"1",unattributed_slots:"0"}' "$refconfig_state" >/dev/null || fail 'reference-count lower must deterministically trim only excess members'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# Repeated snapshots are byte-stable; regressing slots fail before any optional RPC;
+# reference node rotation advances only that baseline and resets its learner.
+repeat_state="$tmp/repeat-state.json"
+cp "$accounting_state" "$repeat_state"
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/repeat-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000002,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"102","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"204","previousCredits":"0"}]}}}
+JSON
+repeat_before="$(sha256sum "$repeat_state")"
+run_capture "$tmp/repeat.out" "$tmp/repeat.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$repeat_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'repeated snapshot must succeed'
+[[ "$(sha256sum "$repeat_state")" == "$repeat_before" ]] || fail 'repeated unchanged snapshot must not mutate state bytes'
+grep -q 'ready=0i.*usable_references=0i' "$tmp/repeat.out" || fail 'repeated snapshot must emit not-ready unchanged totals'
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000001,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"102","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"204","previousCredits":"0"}]}}}
+JSON
+regress_before="$(sha256sum "$repeat_state")"
+run_capture "$tmp/regress.out" "$tmp/regress.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$repeat_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 1 && ! -s "$tmp/regress.out" ]] || fail 'regressing finalized slot must fail closed'
+[[ "$(sha256sum "$repeat_state")" == "$regress_before" ]] || fail 'regressing slot must leave state byte-identical'
+rotated_node='RotatedNode11111111111111111111111111111111'
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000004,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"106","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"$rotated_node","history":[{"epoch":"1052","credits":"208","previousCredits":"0"}]}},"leader_schedule":{"$identity":[],"$rotated_node":[]}}
+JSON
+run_capture "$tmp/node-rotate.out" "$tmp/node-rotate.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$repeat_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'reference node rotation must advance conservatively'
+jq -e --arg node "$rotated_node" '.accounts["ReferenceVote1111111111111111111111111111111"]=={node:$node,total:"208",slot:"449000004",gcd:null,samples:0,increment:null} and .totals.unattributed_slots=="2" and (.leader_slots|has($node))' "$repeat_state" >/dev/null || fail 'node rotation must reset only the rotated learner and install its schedule'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# Unsafe numeric object epochs and signed-64 overflow fail before state creation.
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/unsafe-epoch-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000000,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":9007199254740992,"credits":"10","previousCredits":"0"}]}}}
+JSON
+unsafe_epoch_state="$tmp/unsafe-epoch-state.json"
+run_capture "$tmp/unsafe-epoch.out" "$tmp/unsafe-epoch.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$unsafe_epoch_state"
+[[ "$CAPTURE_STATUS" -eq 1 && ! -e "$unsafe_epoch_state" && ! -s "$tmp/unsafe-epoch.out" ]] || fail 'unsafe numeric object epoch must fail closed'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
+# Two actual overlapping collector processes cannot both enter RPC/state advancement.
+concurrent_state="$tmp/concurrent-state.json"
+concurrent_log="$tmp/concurrent-calls.jsonl"; : >"$concurrent_log"; export MOCK_ALPENGLOW_V3_CALL_LOG="$concurrent_log"
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/concurrent-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"delay_seconds":0.3,"slot":449000000,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"10","previousCredits":"0"}]}},"vote_accounts":[]}
+JSON
+"$collector" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$concurrent_state" >"$tmp/concurrent-first.out" 2>"$tmp/concurrent-first.err" &
+first_pid=$!
+sleep 0.05
+run_capture "$tmp/concurrent-second.out" "$tmp/concurrent-second.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$concurrent_state"
+second_status=$CAPTURE_STATUS
+wait "$first_pid" || fail 'first concurrent collector must complete'
+[[ "$second_status" -eq 0 && ! -s "$tmp/concurrent-second.out" && ! -s "$tmp/concurrent-second.err" ]] || fail 'overlapping collector must exit quietly under lock contention'
+[[ "$(wc -l <"$concurrent_log")" -eq 2 ]] || fail 'overlapping collector must make zero additional RPC calls'
+jq -e '.version==3 and .totals.expected=="0"' "$concurrent_state" >/dev/null || fail 'concurrent completion must leave one valid successor state'
+unset MOCK_ALPENGLOW_V3_FIXTURE
 
 printf 'PASS: alpenglow observed v3 focused tests\n'

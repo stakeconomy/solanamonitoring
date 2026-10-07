@@ -24,6 +24,50 @@ fi
 
 identity="${MOCK_ALPENGLOW_V3_IDENTITY:-Identity111111111111111111111111111111111}"
 scenario="${MOCK_ALPENGLOW_V3_SCENARIO:-valid}"
+fixture="${MOCK_ALPENGLOW_V3_FIXTURE:-}"
+
+if [[ -n "$fixture" ]]; then
+  [[ -f "$fixture" ]] || { printf 'mock: fixture missing\n' >&2; exit 2; }
+  if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$payload"; then
+    fixture_delay="$(jq -r '.delay_seconds // 0' "$fixture")"
+    [[ "$fixture_delay" == 0 ]] || sleep "$fixture_delay"
+    requested_accounts="$(jq -c 'map(select(.id == "v3-accounts"))[0].params[0]' <<<"$payload")"
+    jq -cn --slurpfile f "$fixture" --argjson votes "$requested_accounts" '
+      $f[0] as $x |
+      def cert: {block:{slot:1,blockId:[range(0;32)|0]},signature:{bitmap:[1],signature:[range(0;192)|1]}};
+      def account($vote):
+        $x.accounts[$vote] as $a |
+        if $a == null then null
+        elif $a.raw != null then $a.raw
+        else {owner:($a.owner // "Vote111111111111111111111111111111111111111"),data:{
+          program:($a.program // "vote"),parsed:{type:($a.type // "vote"),info:{
+            nodePubkey:$a.node,epochCredits:$a.history
+          }}
+        }} end;
+      [
+        {jsonrpc:"2.0",id:"v3-genesis",result:($x.genesis // "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY")},
+        {jsonrpc:"2.0",id:"v3-ag-genesis-cert",result:(if $x.consensus == "tower" then null else cert end)},
+        {jsonrpc:"2.0",id:"v3-epoch-schedule",result:($x.schedule // {slotsPerEpoch:432000,leaderScheduleSlotOffset:432000,warmup:true,firstNormalEpoch:14,firstNormalSlot:524256})},
+        {jsonrpc:"2.0",id:"v3-accounts",result:{context:{slot:$x.slot},value:[$votes[] | account(.)]}}
+      ]'
+    exit 0
+  fi
+  method="$(jq -r '.method // empty' <<<"$payload")"
+  id="$(jq -c '.id' <<<"$payload")"
+  if [[ "$(jq -r '.optional_fail // empty' "$fixture")" == "$method" ]]; then
+    exit 1
+  fi
+  case "$method" in
+    getVoteAccounts)
+      jq -cn --slurpfile f "$fixture" --argjson id "$id" '{jsonrpc:"2.0",id:$id,result:{current:($f[0].vote_accounts // []),delinquent:[]}}'
+      ;;
+    getLeaderSchedule)
+      jq -cn --slurpfile f "$fixture" --argjson id "$id" '{jsonrpc:"2.0",id:$id,result:($f[0].leader_schedule // {})}'
+      ;;
+    *) printf 'mock: unexpected fixture method %s\n' "$method" >&2; exit 2 ;;
+  esac
+  exit 0
+fi
 
 if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$payload"; then
   genesis='4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY'
@@ -34,6 +78,7 @@ if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$payload"; then
   parsed_type='vote'
   credits='123456'
   previous_credits='123000'
+  epoch_json='"1052"'
   schedule='{"slotsPerEpoch":432000,"leaderScheduleSlotOffset":432000,"warmup":true,"firstNormalEpoch":14,"firstNormalSlot":524256}'
   jsonrpc='2.0'
   duplicate_id='v3-accounts'
@@ -61,22 +106,27 @@ if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$payload"; then
     previous-max) credits='9223372036854775807'; previous_credits='9223372036854775807' ;;
     previous-overflow) credits='9223372036854775807'; previous_credits='9223372036854775808' ;;
     previous-greater) credits='123456'; previous_credits='123457' ;;
+    numeric-epoch-large-credit) epoch_json='1052'; credits='9007199254740993'; previous_credits='9007199254740000' ;;
   esac
+  requested_accounts="$(jq -c 'map(select(.id == "v3-accounts"))[0].params[0]' <<<"$payload")"
   jq -cn \
     --arg jsonrpc "$jsonrpc" --arg genesis "$genesis" --argjson cert "$cert" --argjson schedule "$schedule" \
-    --argjson accounts_context "$accounts_context" \
+    --argjson accounts_context "$accounts_context" --argjson requested_accounts "$requested_accounts" --argjson epoch "$epoch_json" \
+    --arg own_vote "${MOCK_ALPENGLOW_V3_VOTE:-Vote111111111111111111111111111111111111111}" \
     --arg owner "$owner" --arg node "$node" --arg program "$program" --arg parsed_type "$parsed_type" \
     --arg credits "$credits" --arg previous "$previous_credits" --arg accounts_id "$duplicate_id" '
+    def account($vote): {
+      owner:$owner,
+      data:{program:$program,parsed:{type:$parsed_type,info:{
+        nodePubkey:(if $vote == $own_vote then $node else "ReferenceNode1111111111111111111111111111111" end),
+        epochCredits:[{epoch:$epoch,credits:$credits,previousCredits:$previous}]
+      }}}
+    };
     [
       {jsonrpc:$jsonrpc,id:"v3-genesis",result:(if $genesis == "123" then 123 else $genesis end)},
       {jsonrpc:"2.0",id:"v3-ag-genesis-cert",result:$cert},
       {jsonrpc:"2.0",id:"v3-epoch-schedule",result:$schedule},
-      {jsonrpc:"2.0",id:$accounts_id,result:{context:$accounts_context,value:[{
-        owner:$owner,
-        data:{program:$program,parsed:{type:$parsed_type,info:{nodePubkey:$node,epochCredits:[
-          {epoch:"1052",credits:$credits,previousCredits:$previous}
-        ]}}}
-      }]}}
+      {jsonrpc:"2.0",id:$accounts_id,result:{context:$accounts_context,value:[$requested_accounts[] | account(.)]}}
     ]'
   exit 0
 fi
