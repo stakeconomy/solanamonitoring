@@ -244,6 +244,37 @@ jq -e '
   and ([.panels[] | select((.title // "") | test("Votor participation"; "i"))] | length == 0)
 ' "$dashboard" >/dev/null || fail 'dashboard does not isolate Tower credits or label Alpenglow reward accounting correctly'
 
+jq -e '
+  any(.panels[];
+    .id == 168
+    and .title == "Alpenglow observed inclusion readiness"
+    and (.description | contains("not a performance failure"))
+    and .targets[0].expr == "last_over_time(nodemonitor_alpenglowObservedReady{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])"
+  )
+  and any(.panels[];
+    .id == 169
+    and .title == "Alpenglow unattributed accounts"
+    and .targets[0].expr == "last_over_time(nodemonitor_alpenglowObservedUnattributed{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])"
+  )
+  and any(.panels[];
+    .id == 170
+    and .title == "Alpenglow reference accounts"
+    and .targets[0].expr == "last_over_time(nodemonitor_alpenglowObservedReferences{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])"
+  )
+  and any(.panels[];
+    .id == 172
+    and .title == "Alpenglow observed snapshot slot"
+    and .targets[0].expr == "last_over_time(nodemonitor_alpenglowObservedSlot{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])"
+  )
+  and any(.panels[];
+    .id == 171
+    and .type == "timeseries"
+    and .title == "Alpenglow observed inclusion — inferred interval counts"
+    and (.description | contains("not certificate-direct Votor telemetry"))
+    and ([.targets[].expr] | all(.[]; contains("cluster=~\"$cluster\"") and contains("genesis=~\"$genesis\"") and contains("consensus=\"alpenglow\"")))
+  )
+' "$dashboard" >/dev/null || fail 'dashboard does not expose cluster-scoped observed Alpenglow inclusion graphs'
+
 jq -f "$transform" "$dashboard" >"$transformed"
 cmp -s "$dashboard" "$transformed" || fail 'dashboard optimization is not idempotent'
 

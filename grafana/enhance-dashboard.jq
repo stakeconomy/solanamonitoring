@@ -102,6 +102,40 @@ def timeline_panel($id; $title; $description; $expr; $x; $mappings):
     "type": "state-timeline"
   };
 
+def observed_inclusion_panel:
+  {
+    "datasource": datasource,
+    "description": "Observed/inferred reward-accounting inclusion per collector interval. The denominator is estimated from bounded current reference validators. This is not certificate-direct Votor telemetry.",
+    "fieldConfig": {
+      "defaults": {
+        "color": {"mode": "palette-classic"},
+        "custom": {"drawStyle": "bars", "fillOpacity": 25, "lineWidth": 1, "spanNulls": false},
+        "decimals": 0,
+        "mappings": [],
+        "min": 0,
+        "noValue": "Unattributed / collecting",
+        "unit": "none"
+      },
+      "overrides": []
+    },
+    "gridPos": {"h": 8, "w": 24, "x": 0, "y": 58},
+    "id": 171,
+    "interval": "$inter",
+    "maxDataPoints": 1200,
+    "options": {
+      "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "right", "showLegend": true},
+      "tooltip": {"mode": "multi", "sort": "desc"}
+    },
+    "targets": [
+      target("A"; "nodemonitor_alpenglowObservedIncluded{consensus=\"alpenglow\",pubkey=\"$pubkey\"}"; "Observed included"),
+      target("B"; "nodemonitor_alpenglowObservedExpected{consensus=\"alpenglow\",pubkey=\"$pubkey\"}"; "Estimated opportunities"),
+      target("C"; "nodemonitor_alpenglowObservedMissed{consensus=\"alpenglow\",pubkey=\"$pubkey\"}"; "Observed shortfall")
+    ],
+    "title": "Alpenglow observed inclusion — inferred interval counts",
+    "transparent": true,
+    "type": "timeseries"
+  };
+
 def mount_filter:
   "^/((boot|dev|proc|run|snap|sys|tmp|var/lib|var/snap|var/tmp)(/.*)?|(home/[^/]+|mnt)/[.].*)$";
 
@@ -257,6 +291,7 @@ def interface_filter:
 | .templating.list = [$new_cluster_var, $new_genesis_var, $new_pubkey_var, $new_vote_account_var, $new_server_var, $mountpoint_var, $interface_var, $new_interval_var]
 | (any(.panels[]; .id == 160)) as $layout_done
 | (any(.panels[]; .id == 166)) as $health_first_done
+| (([168, 169, 170, 171, 172] - [.panels[].id]) | length == 0) as $observed_inclusion_done
 | (any(.panels[]; .id == 54 and .targets[0].instant == true and .targets[0].range == false)) as $query_optimization_done
 | (($pubkey_var.label == "Validator / system") and ($server_var.hide == 2)) as $selector_linked
 | .panels |= map(
@@ -630,6 +665,54 @@ def interface_filter:
           [{"color": "green", "value": null}, {"color": "yellow", "value": 8}, {"color": "red", "value": 32}]
         ) | .gridPos = {"h": 2, "w": 3, "x": 3, "y": 1}
       )
+    ]
+  end
+| if $observed_inclusion_done then
+    .
+  else
+    .panels |= map(if .gridPos.y >= 55 then .gridPos.y += 11 else . end)
+    | .panels += [
+      (
+        stat_panel(
+          168; "Alpenglow observed inclusion readiness";
+          "1 means the selected validator and at least one current reference produced comparable inferred counts in the latest attributable interval. 0 means collecting or unattributed; it is not a performance failure.";
+          "last_over_time(nodemonitor_alpenglowObservedReady{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m])";
+          "none"; 0;
+          [{"color": "orange", "value": null}, {"color": "green", "value": 1}]
+        ) | .gridPos = {"h": 3, "w": 6, "x": 0, "y": 55}
+        | .fieldConfig.defaults.mappings = [{"type": "value", "options": {
+            "0": {"color": "orange", "text": "Collecting / unattributed"},
+            "1": {"color": "green", "text": "Comparable interval"}
+          }}]
+      ),
+      (
+        stat_panel(
+          169; "Alpenglow unattributed accounts";
+          "Number of selected/reference account deltas in the latest interval that could not be safely attributed because of collection startup, an epoch delay, leader-slot overlap, malformed data, or missing schedule.";
+          "last_over_time(nodemonitor_alpenglowObservedUnattributed{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m])";
+          "none"; 6;
+          [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 4}]
+        ) | .gridPos = {"h": 3, "w": 6, "x": 6, "y": 55}
+      ),
+      (
+        stat_panel(
+          170; "Alpenglow reference accounts";
+          "Bounded current high-stake reference vote accounts used to estimate reward opportunities. This is provenance, not a validator score.";
+          "last_over_time(nodemonitor_alpenglowObservedReferences{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m])";
+          "none"; 12;
+          [{"color": "green", "value": null}]
+        ) | .gridPos = {"h": 3, "w": 6, "x": 12, "y": 55}
+      ),
+      (
+        stat_panel(
+          172; "Alpenglow observed snapshot slot";
+          "Finalized context slot of the vote-account snapshot used for the latest observed/inferred interval.";
+          "last_over_time(nodemonitor_alpenglowObservedSlot{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m])";
+          "none"; 18;
+          [{"color": "green", "value": null}]
+        ) | .gridPos = {"h": 3, "w": 6, "x": 18, "y": 55}
+      ),
+      observed_inclusion_panel
     ]
   end
 | .panels |= map(
