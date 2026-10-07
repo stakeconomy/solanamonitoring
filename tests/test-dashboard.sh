@@ -8,7 +8,10 @@ transform="$repo_dir/grafana/optimize-dashboard.jq"
 enhancement="$repo_dir/grafana/enhance-dashboard.jq"
 transformed="$(mktemp)"
 enhanced="$(mktemp)"
-trap 'rm -f "$transformed" "$enhanced"' EXIT
+unmigrated="$(mktemp)"
+migrated="$(mktemp)"
+remigrated="$(mktemp)"
+trap 'rm -f "$transformed" "$enhanced" "$unmigrated" "$migrated" "$remigrated"' EXIT
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -168,7 +171,7 @@ jq -e '
   [.panels[] | select(.type == "stat" or .type == "gauge" or .type == "bargauge")]
   | all(.[ ];
       .maxDataPoints == 1
-      and .fieldConfig.defaults.noValue == "No recent data"
+      and .fieldConfig.defaults.noValue == (if .id == 168 or .id == 169 then "Collecting vote data" else "No recent data" end)
       and all(.targets[]; .instant == true and .range == false)
     )
 ' "$dashboard" >/dev/null || fail 'current-value panels still perform range queries'
@@ -247,38 +250,95 @@ jq -e '
 jq -e '
   any(.panels[];
     .id == 168
-    and .title == "Alpenglow observed inclusion readiness"
-    and (.description | contains("not a performance failure"))
-    and .targets[0].expr == "last_over_time(nodemonitor_alpenglowObservedReady{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])"
+    and .title == "Alpenglow vote inclusion rate"
+    and .type == "stat"
+    and .gridPos == {"h": 4, "w": 8, "x": 0, "y": 55}
+    and .fieldConfig.defaults.unit == "percent"
+    and .fieldConfig.defaults.noValue == "Collecting vote data"
+    and (.description | contains("RPC-derived estimate"))
+    and (.description | contains("not direct certificate telemetry"))
+    and (.targets[0].expr | contains("clamp_max("))
+    and (.targets[0].expr | contains("nodemonitor_alpenglowObservedIncluded"))
+    and (.targets[0].expr | contains("nodemonitor_alpenglowObservedExpected"))
+    and (.targets[0].expr | contains("nodemonitor_alpenglowObservedReady"))
+    and (.targets[0].expr | contains("== 1"))
+    and (.targets[0].expr | contains("> 0"))
   )
   and any(.panels[];
     .id == 169
-    and .title == "Alpenglow unattributed accounts"
-    and .targets[0].expr == "last_over_time(nodemonitor_alpenglowObservedUnattributed{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])"
-  )
-  and any(.panels[];
-    .id == 170
-    and .title == "Alpenglow reference accounts"
-    and .targets[0].expr == "last_over_time(nodemonitor_alpenglowObservedReferences{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])"
-  )
-  and any(.panels[];
-    .id == 172
-    and .title == "Alpenglow observed snapshot slot"
-    and .targets[0].expr == "last_over_time(nodemonitor_alpenglowObservedSlot{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])"
+    and .title == "Alpenglow vote counts"
+    and .type == "stat"
+    and .gridPos == {"h": 4, "w": 16, "x": 8, "y": 55}
+    and .fieldConfig.defaults.noValue == "Collecting vote data"
+    and (.description | contains("RPC-derived estimate"))
+    and (.description | contains("not direct certificate telemetry"))
+    and ([.targets[].legendFormat] == ["Included", "Estimated possible", "Estimated missed"])
+    and ([.targets[].expr] | all(.[];
+      contains("nodemonitor_alpenglowObservedReady")
+      and contains("nodemonitor_alpenglowObservedExpected")
+      and contains("== 1")
+      and contains("> 0")
+    ))
   )
   and any(.panels[];
     .id == 171
+    and .title == "Alpenglow inclusion rate history"
     and .type == "timeseries"
-    and .title == "Alpenglow observed inclusion — inferred interval counts"
-    and (.description | contains("not certificate-direct Votor telemetry"))
-    and ([.targets[].expr] | all(.[]; contains("cluster=~\"$cluster\"") and contains("genesis=~\"$genesis\"") and contains("consensus=\"alpenglow\"")))
+    and .gridPos == {"h": 8, "w": 24, "x": 0, "y": 59}
+    and .fieldConfig.defaults.unit == "percent"
+    and .fieldConfig.defaults.custom.spanNulls == false
+    and (.description | contains("RPC-derived estimate"))
+    and (.description | contains("not direct certificate telemetry"))
+    and (.targets[0].expr | contains("clamp_max("))
+    and (.targets[0].expr | contains("nodemonitor_alpenglowObservedIncluded"))
+    and (.targets[0].expr | contains("nodemonitor_alpenglowObservedExpected"))
+    and (.targets[0].expr | contains("nodemonitor_alpenglowObservedReady"))
+    and (.targets[0].expr | contains("== 1"))
+    and (.targets[0].expr | contains("> 0"))
   )
-' "$dashboard" >/dev/null || fail 'dashboard does not expose cluster-scoped observed Alpenglow inclusion graphs'
+  and ([.panels[].id] | index(170) == null)
+  and ([.panels[].id] | index(172) == null)
+  and ([.panels[].title // ""] | all(.[];
+    test("opportunities|observed shortfall|unattributed accounts|observed inclusion readiness|observed snapshot slot"; "i") | not
+  ))
+  and ([.panels[] | select(.id == 168 or .id == 169 or .id == 171) | .targets[].expr] | all(.[];
+    contains("cluster=~\"$cluster\"")
+    and contains("genesis=~\"$genesis\"")
+    and contains("consensus=\"alpenglow\"")
+    and contains("pubkey=\"$pubkey\"")
+    and contains("vote_account=~\"$vote_account\"")
+  ))
+' "$dashboard" >/dev/null || fail 'dashboard does not expose the Alpenglow operator view'
 
 jq -f "$transform" "$dashboard" >"$transformed"
 cmp -s "$dashboard" "$transformed" || fail 'dashboard optimization is not idempotent'
 
 jq -f "$enhancement" "$dashboard" >"$enhanced"
 cmp -s "$dashboard" "$enhanced" || fail 'dashboard enhancement is not idempotent'
+
+jq '
+  .panels |= map(
+    select(.id as $id | ([168, 169, 170, 171, 172] | index($id)) == null)
+    | if .gridPos.y >= 67 then .gridPos.y -= 12 else . end
+  )
+' "$dashboard" >"$unmigrated"
+jq -f "$enhancement" "$unmigrated" >"$migrated"
+jq -e '
+  [.panels[] | select(.gridPos != null)] as $panels
+  | [
+      $panels[] as $a
+      | $panels[] as $b
+      | select($a.id < $b.id)
+      | select(
+          ($a.gridPos.x < ($b.gridPos.x + $b.gridPos.w)) and
+          ($b.gridPos.x < ($a.gridPos.x + $a.gridPos.w)) and
+          ($a.gridPos.y < ($b.gridPos.y + $b.gridPos.h)) and
+          ($b.gridPos.y < ($a.gridPos.y + $a.gridPos.h))
+        )
+    ]
+  | length == 0
+' "$migrated" >/dev/null || fail 'fresh Alpenglow operator-view migration creates panel overlap'
+jq -f "$enhancement" "$migrated" >"$remigrated"
+cmp -s "$migrated" "$remigrated" || fail 'fresh Alpenglow operator-view migration is not idempotent'
 
 printf '%s\n' 'dashboard tests passed'
