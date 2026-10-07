@@ -89,7 +89,7 @@ Transition ordering:
 | Valid observation but persisted pubkey or vote account differs | cold `ready=0` record | atomically replace with fresh totals for the explicitly configured validator |
 | Persisted version, genesis, consensus, or immutable schedule fingerprint differs | no output, exit non-zero | no mutation; operator intervention required |
 | Wrong network, Tower, unknown consensus, RPC error, malformed account, or monitored `nodePubkey != --identity` | no output | no mutation |
-| Existing state is unreadable, truncated, structurally invalid, or violates cumulative invariants | no output, exit non-zero | no mutation; operator must move the bad file aside explicitly |
+| Existing core state (excluding the separately recoverable leader-cache subsection) is unreadable, truncated, structurally invalid, or violates cumulative invariants | no output, exit non-zero | no mutation; operator must move the bad file aside explicitly |
 
 An intentional identity or vote-account rotation is initialized by running the collector with new explicit arguments against a valid Testnet Alpenglow snapshot. When either configured identity or configured vote account differs from persisted state, the mandatory batch includes only the newly configured monitored vote account—never persisted references. After ownership proof, replacement state starts with zero cumulative totals, an empty cohort, only the monitored baseline, null schedule cache, and reset learners; the optional call may then discover a fresh cohort. No old cohort, account, learner, or schedule record is retained.
 
@@ -143,7 +143,7 @@ expected == included + missed
 included <= expected
 ```
 
-Invalid existing state is never overwritten automatically.
+Invalid core state is never overwritten automatically. The leader-cache subsection is the sole recoverable exception: its invalidity cannot alter counters or baselines and is normalized exactly as defined below.
 
 On a valid identity transition described above, replace state only after network and monitored-account ownership have been proven. On epoch change:
 
