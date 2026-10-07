@@ -229,7 +229,7 @@ parse_batch() {
     def parsed_history:
       if type!="array" or length==0 then error("history") else
         reduce .[] as $raw ({last:null,seen:false}; ($raw|history_entry) as $e |
-          if $e.marker then . elif .last!=null and (dec_lt(.last.epoch;$e.epoch)|not) then error("history order") else {last:$e,seen:true} end
+          if $e.marker then {last:null,seen:false} elif .last!=null and (dec_lt(.last.epoch;$e.epoch)|not) then error("history order") else {last:$e,seen:true} end
         ) | if .seen then .last else error("marker only") end
       end;
     def parsed_account($account;$vote):
@@ -403,7 +403,8 @@ if [[ "$optional_kind" == cohort ]]; then
     printf 'warning: optional cohort RPC failed\n' >&2
   fi
 elif [[ "$optional_kind" == schedule ]]; then
-  if leader_slots="$(fetch_leader_schedule "$epoch_first" "$schedule_nodes")"; then state_json="$(jq -c --arg epoch "$epoch" --argjson slots "$leader_slots" '.leader_schedule_epoch=$epoch|.leader_slots=$slots' <<<"$state_json")" || exit 1
+  if leader_slots="$(fetch_leader_schedule "$epoch_first" "$schedule_nodes")"; then
+    state_json="$(printf '%s\n%s\n' "$state_json" "$leader_slots" | jq -sc --arg epoch "$epoch" '.[0] as $state | .[1] as $slots | $state | .leader_schedule_epoch=$epoch | .leader_slots=$slots')" || exit 1
   else printf 'warning: optional leader schedule RPC failed\n' >&2; fi
 fi
 

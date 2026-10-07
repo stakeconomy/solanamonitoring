@@ -404,6 +404,18 @@ run_capture "$tmp/history.out" "$tmp/history.err" \
 jq -e --arg vote "$vote" '.accounts[$vote].total=="9007199254740993" and .epoch=="1052"' "$history_state" >/dev/null ||
   fail 'exact history parsing must retain the latest large decimal string'
 
+# The live migration boundary repeats the final pre-migration epoch after the marker.
+# Ordering restarts at the marker, and only the post-marker generation is active.
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000000,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1042","credits":"2443879800","previousCredits":"2443815330"},{"epoch":"18446744073709551615","credits":"18446744073709551615","previousCredits":"18446744073709551615"},{"epoch":"1042","credits":"1656463127954","previousCredits":"2443879800"},{"epoch":"1043","credits":"1656463192424","previousCredits":"1656463127954"}]}}}
+JSON
+migration_boundary_state="$tmp/migration-boundary-state.json"
+run_capture "$tmp/migration-boundary.out" "$tmp/migration-boundary.err" \
+  --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$migration_boundary_state"
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'migration marker must reset history generation ordering'
+jq -e --arg vote "$vote" '.epoch=="1052" and .accounts[$vote].total=="1656463192424"' "$migration_boundary_state" >/dev/null ||
+  fail 'only the latest post-marker generation record may be active'
+
 # Unsorted/duplicate epochs fail closed and cannot create state.
 cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
 {"slot":449000000,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"10","previousCredits":"0"},{"epoch":"1052","credits":"11","previousCredits":"10"}]}}}
@@ -413,6 +425,32 @@ run_capture "$tmp/bad-history.out" "$tmp/bad-history.err" \
   --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$bad_history_state"
 [[ "$CAPTURE_STATUS" -eq 1 && ! -s "$tmp/bad-history.out" && ! -e "$bad_history_state" ]] ||
   fail 'duplicate epoch history must fail closed without state'
+
+# A valid full-epoch leader cache can exceed Linux ARG_MAX. It must be streamed
+# into jq rather than passed through --argjson on the process command line.
+large_schedule_state="$tmp/large-schedule-state.json"
+reference_vote='ReferenceVote1111111111111111111111111111111'
+reference_node='ReferenceNode1111111111111111111111111111111'
+cat >"$large_schedule_state" <<JSON
+{"version":3,"genesis":"4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY","consensus":"alpenglow","pubkey":"$identity","vote_account":"$vote","config":{"reference_count":1,"rate_samples":20},"schedule":{"slots_per_epoch":432000,"leader_schedule_slot_offset":432000,"warmup":true,"first_normal_epoch":14,"first_normal_slot":524256},"epoch":"1052","reference_votes":["$reference_vote"],"accounts":{"$vote":{"node":"$identity","total":"10","slot":"449000000","gcd":null,"samples":0,"increment":null},"$reference_vote":{"node":"$reference_node","total":"20","slot":"449000000","gcd":null,"samples":0,"increment":null}},"leader_schedule_epoch":null,"leader_slots":{},"totals":{"included":"0","expected":"0","missed":"0","unattributed_slots":"0"},"last_attributed_slot":"0"}
+JSON
+jq -cn --arg vote "$vote" --arg identity "$identity" --arg ref "$reference_vote" --arg node "$reference_node" '
+  {slot:449000000,accounts:{
+    ($vote):{node:$identity,history:[{epoch:"1052",credits:"10",previousCredits:"0"}]},
+    ($ref):{node:$node,history:[{epoch:"1052",credits:"20",previousCredits:"0"}]}
+  },leader_schedule:{
+    ($identity):[range(0;216000)],
+    ($node):[range(216000;432000)]
+  }}
+' >"$MOCK_ALPENGLOW_V3_FIXTURE"
+run_capture "$tmp/large-schedule.out" "$tmp/large-schedule.err" \
+  --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$large_schedule_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'large valid leader schedule must not exceed the process argument limit'
+jq -e --arg identity "$identity" --arg node "$reference_node" '
+  .leader_schedule_epoch=="1052" and
+  (.leader_slots[$identity]|length)==216000 and
+  (.leader_slots[$node]|length)==216000
+' "$large_schedule_state" >/dev/null || fail 'large leader schedule must persist completely'
 unset MOCK_ALPENGLOW_V3_FIXTURE
 
 # Reward-delay boundary: first included slot epoch+7 is unattributed; epoch+8 is clean.
