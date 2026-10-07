@@ -91,9 +91,13 @@ Transition ordering:
 | Wrong network, Tower, unknown consensus, RPC error, malformed account, or monitored `nodePubkey != --identity` | no output | no mutation |
 | Existing state is unreadable, truncated, structurally invalid, or violates cumulative invariants | no output, exit non-zero | no mutation; operator must move the bad file aside explicitly |
 
-An intentional identity or vote-account rotation is initialized by running the collector with new explicit arguments against a valid Testnet Alpenglow snapshot. When configured identity differs from persisted identity, the mandatory batch includes only the newly configured monitored vote account—never persisted references. After ownership proof, replacement state starts with zero cumulative totals, an empty cohort, only the monitored baseline, null schedule cache, and reset learners; the optional call may then discover a fresh cohort. No old cohort, account, learner, or schedule record is retained.
+An intentional identity or vote-account rotation is initialized by running the collector with new explicit arguments against a valid Testnet Alpenglow snapshot. When either configured identity or configured vote account differs from persisted state, the mandatory batch includes only the newly configured monitored vote account—never persisted references. After ownership proof, replacement state starts with zero cumulative totals, an empty cohort, only the monitored baseline, null schedule cache, and reset learners; the optional call may then discover a fresh cohort. No old cohort, account, learner, or schedule record is retained.
 
-`reference_count` and `rate_samples` are persisted under `config`. A changed `reference_count` preserves totals and initialized retained members, trims deterministically by persisted order when lowered, and adds null-baseline members through the optional repair call when raised. A changed `rate_samples` preserves totals and baselines but clears every learner before the current gap is classified, stores the new threshold, and emits `ready=0` for that invocation.
+`reference_count` and `rate_samples` are persisted under `config`. Transition precedence is: validate state and mandatory observation; handle identity/vote replacement; apply configuration changes; handle epoch change; then classify stale, repeated, or advancing slots.
+
+A changed `reference_count` preserves totals, learners, baselines, and initialized retained members; it trims deterministically by persisted order when lowered and adds null-baseline members through the optional repair call when raised. Existing clean accounts may still classify the current gap.
+
+A changed `rate_samples` preserves totals but invalidates learner semantics. Clear every learner before using the current snapshot. If `to > from`, force that whole span to unattributed exactly once, advance every valid baseline, keep `last_attributed_slot` unchanged, store the new threshold, and emit `ready=0`. If `to == from`, store the new threshold and cleared learners with no slot or counter change and emit `ready=0`. Thus configuration mutation is allowed on a repeated snapshot and takes precedence over the normal repeated-slot no-mutation rule.
 
 The mandatory RPC batch includes exact unique IDs for:
 
@@ -132,7 +136,7 @@ Acquire an exclusive non-blocking `flock` on `<state>.lock` before reading state
 
 Write state with a same-directory temporary file, mode `0600`, followed by atomic rename. A failed write emits no line, exits non-zero, and leaves the previous state intact.
 
-Strict state validation occurs before RPC interpretation. Require the exact schema shape, unique reference votes, configured account-key equality, valid nullable learner forms, signed-64-safe decimal strings, non-negative totals, and:
+Core state validation occurs before RPC interpretation. Require the exact top-level/account schema, unique reference votes, configured account-key equality, valid nullable learner forms, signed-64-safe decimal strings, non-negative totals, and:
 
 ```text
 expected == included + missed
@@ -204,7 +208,14 @@ State schema:
 }
 ```
 
-`accounts` keys must equal exactly the monitored vote account plus `reference_votes`. A newly selected reference uses the explicit all-null baseline form shown above. For an initialized account, `node`, `total`, and `slot` are non-null; `gcd` and `increment` are either canonical positive decimal strings or null; `samples` is an exact JSON integer in `0..rate_samples`; `increment != null` requires `gcd != null` and `samples >= 1`. Learner reset sets `gcd=null`, `samples=0`, and `increment=null`. `leader_schedule_epoch` is null when no cache exists, and `leader_slots` is then `{}`.
+`accounts` keys must equal exactly the monitored vote account plus `reference_votes`. A newly selected reference uses the explicit all-null baseline form shown above. For an initialized account, `node`, `total`, and `slot` are non-null; every initialized account `slot` must equal the monitored account's baseline slot, so every compared delta covers the same `(from,to]` span. A partial baseline (some but not all of node/total/slot non-null) is invalid. `gcd` and `increment` are either canonical positive decimal strings or null; `samples` is an exact JSON integer in `0..rate_samples`; `increment != null` requires `gcd != null` and `samples >= 1`. Learner reset sets `gcd=null`, `samples=0`, and `increment=null`.
+
+Leader-cache state is valid only in one of two exact forms:
+
+- absent cache: `leader_schedule_epoch=null` and `leader_slots={}`;
+- current cache: `leader_schedule_epoch == epoch`, every key is a unique non-null `node` used by an initialized tracked account, and each value is a strictly increasing unique array of canonical decimal-string absolute slots within `[epoch_first_slot, epoch_first_slot + slots_per_epoch)`.
+
+Extra node keys, missing required node keys, unsafe slots, out-of-epoch slots, duplicates, unsorted arrays, or a cache epoch different from state epoch invalidate the cache portion. They do not invalidate counters or baselines: normalize to the absent-cache form before classifying the current gap, fetch once if the optional-call slot is available, and treat only accounts still lacking a valid schedule as unknown.
 
 All potentially large state integers—epoch, slots, credit totals, GCD values, increments, and cumulative totals—are canonical decimal strings. Only bounded schema/config/sample values remain JSON numbers. Validate every string before Bash arithmetic: decimal syntax only, range `0..9223372036854775807`, checked addition/subtraction, and fail closed on overflow. jq must never convert these strings with `tonumber`. Influx integer fields are emitted directly from validated decimal strings with the `i` suffix.
 
@@ -514,18 +525,18 @@ Do not migrate v2 interval state into v3 cumulative totals. Rollback never copie
 9. Epoch transition preserves cumulative totals, counts the cross-epoch span once as unattributed, and resets baselines, learners, and schedule cache.
 10. Reward-delay boundaries reject first included slot `epoch_start+7` and accept exact `epoch_start+8` and later.
 11. Own leader contamination makes the gap unattributed; a contaminated reference is ignored while another clean reference can define expected.
-12. Repeated slot emits `ready=0` without mutation; regressing slot, malformed monitored account, decreasing monitored total, and invalid state fail without mutation.
+12. Repeated slot with unchanged config emits `ready=0` without mutation; regressing slot, mismatched initialized baseline slots, malformed monitored account, decreasing monitored total, and invalid core state fail without mutation.
 13. Null/malformed reference is removed without poisoning clean peers; decreasing reference total, node rotation, and missing schedule advance that valid baseline conservatively and make only that account unknown.
 14. Two concurrent invocations cannot both advance state; forced termination during a write leaves the previous JSON valid.
 15. Large candidate population selects default eight, configurable up to 32, with bounded parser subprocesses and snapshots at most monitored plus configured references.
 16. Every successful snapshot emits all eight fields and escaped bounded tags, even when totals do not change.
-17. Decimal-string state preserves values above jq's exact-number range; overflow, wrong fixed schedule tuple, malformed/unsorted epoch history, duplicate/missing batch IDs, JSON-RPC errors, wrong owner/type, and unsafe marker forms fail closed.
+17. Decimal-string state preserves values above jq's exact-number range; overflow, wrong fixed schedule tuple, malformed/unsorted epoch history, duplicate/missing batch IDs, JSON-RPC errors, wrong owner/type, and unsafe marker forms fail closed. Stale, extra-key, missing-key, duplicate, unsorted, unsafe, or out-of-epoch leader caches normalize to absent and never suppress contamination checks.
 18. Mandatory batch plus at most one optional call never makes a third RPC call; every fixture path remains below the `1.5s` p99 target in repeated local timing runs.
 19. Optional-call failure invalidates only dependent accounts and still attributes when an existing clean monitored account and reference remain.
 20. Exit codes/stdout/stderr match the exit contract, including `--help`, quiet lock contention, and optional-call warning behavior.
 21. Telegraf has a separate two-second input with `3s` timeout, exact fixed arguments, and `0.7`-second RPC timeout; sudoers tests reject altered state, RPC URL, identity, or parser arguments while preserving the old monitor rule.
 22. The legacy helper path and thirteen-positional-argument ABI remain unchanged during shadow; v3 uses the separate `-v3.sh` path.
-23. Changed identity discards old cohort/cache/learners; changed reference count adjusts membership deterministically; changed rate-sample threshold resets learners without resetting totals.
+23. Changed identity or vote account discards old cohort/cache/learners; changed reference count adjusts membership deterministically even on a repeated slot; changed rate-sample threshold resets learners, forces an advancing span wholly unattributed, and on a repeated slot changes only config/learners without resetting totals.
 24. Dashboard uses exact schema-v3 ten-minute `increase()` queries, no clamp, bounded selectors, count rounding, instant-sample timestamp age, and a five-second stale threshold; zero-opportunity differs from stale collection.
 25. Dashboard transformation remains byte-idempotent with no duplicate IDs or overlap, and existing Mainnet Tower panels remain unchanged.
 26. Shadow configuration retains legacy collection; a separate cutover fixture removes legacy invocation only in phase three.
