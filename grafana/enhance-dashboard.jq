@@ -105,7 +105,7 @@ def timeline_panel($id; $title; $description; $expr; $x; $mappings):
 def observed_inclusion_panel:
   {
     "datasource": datasource,
-    "description": "RPC-derived estimate of vote inclusion over time. The expected count is reference-derived; this is not direct certificate telemetry.",
+    "description": "RPC-derived estimate of vote inclusion over time. The expected count is derived from a bounded reference cohort; this is not direct certificate telemetry.",
     "fieldConfig": {
       "defaults": {
         "color": {"mode": "palette-classic"},
@@ -296,6 +296,12 @@ def interface_filter:
     and any(.panels[]; .id == 169 and .title == "Alpenglow vote counts")
     and any(.panels[]; .id == 171 and .title == "Alpenglow inclusion rate history")
     and (all(.panels[]; .id != 170 and .id != 172))
+  ) as $observed_inclusion_layout_done
+| (
+    $observed_inclusion_layout_done
+    and all(.panels[] | select(.id == 168 or .id == 169 or .id == 171);
+      (.description | contains("bounded reference cohort"))
+    )
   ) as $observed_inclusion_done
 | (any(.panels[]; .id == 54 and .targets[0].instant == true and .targets[0].range == false)) as $query_optimization_done
 | (($pubkey_var.label == "Validator / system") and ($server_var.hide == 2)) as $selector_linked
@@ -675,7 +681,11 @@ def interface_filter:
 | if $observed_inclusion_done then
     .
   else
-    (if $observed_inclusion_present then
+    (if $observed_inclusion_layout_done then
+      .panels |= map(
+        select(.id as $id | ([168, 169, 170, 171, 172] | index($id)) == null)
+      )
+    elif $observed_inclusion_present then
       .panels |= map(
         select(.id as $id | ([168, 169, 170, 171, 172] | index($id)) == null)
         | if .gridPos.y >= 66 then .gridPos.y += 1 else . end
@@ -687,7 +697,7 @@ def interface_filter:
       (
         stat_panel(
           168; "Alpenglow vote inclusion rate";
-          "RPC-derived estimate of included votes versus estimated possible votes. The expected count is reference-derived; this is not direct certificate telemetry.";
+          "RPC-derived estimate of included votes versus estimated possible votes. The expected count is derived from a bounded reference cohort; this is not direct certificate telemetry.";
           "clamp_max((100 * last_over_time(nodemonitor_alpenglowObservedIncluded{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) / last_over_time(nodemonitor_alpenglowObservedExpected{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m])), 100) and last_over_time(nodemonitor_alpenglowObservedReady{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) == 1 and last_over_time(nodemonitor_alpenglowObservedExpected{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) > 0";
           "percent"; 0;
           [{"color": "red", "value": null}, {"color": "yellow", "value": 80}, {"color": "green", "value": 95}]
@@ -697,7 +707,7 @@ def interface_filter:
       (
         stat_panel(
           169; "Alpenglow vote counts";
-          "RPC-derived estimate of included, possible, and missed votes. Counts remain raw estimates; this is not direct certificate telemetry.";
+          "RPC-derived estimate of included, possible, and missed votes. Estimated possible and missed counts are derived from a bounded reference cohort; counts remain raw estimates, not direct certificate telemetry.";
           "last_over_time(nodemonitor_alpenglowObservedIncluded{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) and last_over_time(nodemonitor_alpenglowObservedReady{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) == 1 and last_over_time(nodemonitor_alpenglowObservedExpected{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) > 0";
           "none"; 8;
           [{"color": "green", "value": null}]

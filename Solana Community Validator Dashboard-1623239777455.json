@@ -3940,7 +3940,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "RPC-derived estimate of included votes versus estimated possible votes. The expected count is reference-derived; this is not direct certificate telemetry.",
+      "description": "RPC-derived estimate of included votes versus estimated possible votes. The expected count is derived from a bounded reference cohort; this is not direct certificate telemetry.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -4019,7 +4019,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "RPC-derived estimate of included, possible, and missed votes. Counts remain raw estimates; this is not direct certificate telemetry.",
+      "description": "RPC-derived estimate of included, possible, and missed votes. Estimated possible and missed counts are derived from a bounded reference cohort; counts remain raw estimates, not direct certificate telemetry.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -4115,7 +4115,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "RPC-derived estimate of vote inclusion over time. The expected count is reference-derived; this is not direct certificate telemetry.",
+      "description": "RPC-derived estimate of vote inclusion over time. The expected count is derived from a bounded reference cohort; this is not direct certificate telemetry.",
       "fieldConfig": {
         "defaults": {
           "color": {

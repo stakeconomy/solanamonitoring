@@ -256,6 +256,7 @@ jq -e '
     and .fieldConfig.defaults.unit == "percent"
     and .fieldConfig.defaults.noValue == "Collecting vote data"
     and (.description | contains("RPC-derived estimate"))
+    and (.description | contains("bounded reference cohort"))
     and (.description | contains("not direct certificate telemetry"))
     and (.targets[0].expr | contains("clamp_max("))
     and (.targets[0].expr | contains("nodemonitor_alpenglowObservedIncluded"))
@@ -271,6 +272,7 @@ jq -e '
     and .gridPos == {"h": 4, "w": 16, "x": 8, "y": 55}
     and .fieldConfig.defaults.noValue == "Collecting vote data"
     and (.description | contains("RPC-derived estimate"))
+    and (.description | contains("bounded reference cohort"))
     and (.description | contains("not direct certificate telemetry"))
     and ([.targets[].legendFormat] == ["Included", "Estimated possible", "Estimated missed"])
     and ([.targets[].expr] | all(.[];
@@ -288,6 +290,7 @@ jq -e '
     and .fieldConfig.defaults.unit == "percent"
     and .fieldConfig.defaults.custom.spanNulls == false
     and (.description | contains("RPC-derived estimate"))
+    and (.description | contains("bounded reference cohort"))
     and (.description | contains("not direct certificate telemetry"))
     and (.targets[0].expr | contains("clamp_max("))
     and (.targets[0].expr | contains("nodemonitor_alpenglowObservedIncluded"))
