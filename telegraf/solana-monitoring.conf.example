@@ -63,9 +63,18 @@
   fieldpass = ["context_switches"]
 
 [[inputs.exec]]
+  # Legacy schema-v2 collector. Keep this one-minute input during the v3 shadow.
   commands = ["/usr/bin/sudo -n -H -u VALIDATOR_USER -- /home/VALIDATOR_USER/solanamonitoring/monitor.sh --rpc-url http://127.0.0.1:8899 --rpc-timeout 20 --price-timeout 3"]
   interval = "1m"
   timeout = "1m"
+  data_format = "influx"
+
+[[inputs.exec]]
+  # Schema-v3 Alpenglow collector. Replace both public-key placeholders with
+  # this validator's fixed identity and vote account before installation.
+  commands = ["/usr/bin/sudo -n -H -u VALIDATOR_USER -- /home/VALIDATOR_USER/solanamonitoring/scripts/alpenglow-observed-vote-inclusion-v3.sh --rpc-url http://127.0.0.1:8899 --identity VALIDATOR_IDENTITY --vote-account VALIDATOR_VOTE_ACCOUNT --state /home/VALIDATOR_USER/.config/solana/alpenglow-observed-vote-inclusion-v3.json --rpc-timeout 0.7 --reference-count 8 --rate-samples 20"]
+  interval = "2s"
+  timeout = "3s"
   data_format = "influx"
 
 [[outputs.influxdb]]

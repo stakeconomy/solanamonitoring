@@ -54,15 +54,16 @@ Run `./monitor.sh --help` for all command-line and environment-variable options.
 
 ## Safe Telegraf execution
 
-Telegraf should remain an unprivileged service. Allow it to run only this collector as the validator user.
-
-Create `/etc/sudoers.d/telegraf-solana-monitor` with `visudo`:
+Telegraf should remain an unprivileged service. During schema-v3 shadow, preserve the legacy one-minute rule and add a second rule that binds every v3 production argument:
 
 ```sudoers
 telegraf ALL=(solana) NOPASSWD: /home/solana/solanamonitoring/monitor.sh
+telegraf ALL=(solana) NOPASSWD: /home/solana/solanamonitoring/scripts/alpenglow-observed-vote-inclusion-v3.sh --rpc-url http\://127.0.0.1\:8899 --identity VALIDATOR_IDENTITY --vote-account VALIDATOR_VOTE_ACCOUNT --state /home/solana/.config/solana/alpenglow-observed-vote-inclusion-v3.json --rpc-timeout 0.7 --reference-count 8 --rate-samples 20
 ```
 
-Validate the rule:
+Replace the identity and vote-account placeholders in both sudoers and Telegraf with fixed real public keys. Do not add wildcards or authorize an alternate RPC URL, state path, identity, vote account, reference count, or rate-sample threshold.
+
+Validate and inspect the effective policy:
 
 ```bash
 sudo chmod 0440 /etc/sudoers.d/telegraf-solana-monitor
@@ -71,27 +72,20 @@ sudo visudo -c
 sudo -ll -U telegraf
 ```
 
-The effective rules must not contain `telegraf ALL=(ALL) NOPASSWD:ALL`.
+The effective rules must not contain `telegraf ALL=(ALL) NOPASSWD:ALL`. Follow the [installation guide](docs/installation.md) to prove altered arguments are rejected and to execute the exact production command once before enabling its input.
 
-The Telegraf command is:
+The example configuration keeps two independent inputs:
 
-```bash
-/usr/bin/sudo -n -H -u solana -- \
-  /home/solana/solanamonitoring/monitor.sh \
-  --rpc-url http://127.0.0.1:8899 \
-  --rpc-timeout 20 \
-  --price-timeout 3
-```
+- legacy `monitor.sh`: `interval = "1m"`, `timeout = "1m"`, schema v2;
+- standalone v3 collector: `interval = "2s"`, `timeout = "3s"`, fixed `--rpc-timeout 0.7 --reference-count 8 --rate-samples 20` and validator-home v3 state.
 
-Start from [`telegraf/solana-monitoring.conf.example`](telegraf/solana-monitoring.conf.example). Change the hostname, validator username, repository path, RPC URL, and real validator mount points. Keep the Stakeconomy output settings when using the community dashboard.
-
-Do not configure `data_type = "integer"`; the emitted line contains both integer and floating-point fields.
+Start from [`telegraf/solana-monitoring.conf.example`](telegraf/solana-monitoring.conf.example). Change the hostname, validator username, repository path, RPC URL, fixed identity/vote account, and real validator mount points. Keep the Stakeconomy output settings when using the community dashboard. Do not configure `data_type = "integer"`; the emitted lines contain both integer and floating-point fields.
 
 ## Migrating an existing validator
 
-Follow the [community-dashboard migration guide](docs/installation.md). It covers backups, a side-by-side test, removal of unrestricted sudo, Telegraf validation, rollout checks, and rollback.
+Follow the [installation guide](docs/installation.md) and the [schema-v3 migration guide](docs/alpenglow-monitoring-migration.md). Keep legacy collection and dashboard queries unchanged for at least a 24-hour shadow, cut the dashboard over in phase two, and retire legacy Alpenglow collection only in phase three. Phase-two rollback is dashboard-only; phase-three rollback restores the previous `monitor.sh`. Never copy state or counters between schemas.
 
-The collector retains the `nodemonitor` measurement but writes schema-v2 tagged series. Untagged historical data is legacy-unclassified and is intentionally excluded from normal cluster-scoped dashboard views; do not assign it retrospectively from a pubkey.
+The collector retains the `nodemonitor` measurement but writes schema-v2 tagged series. The standalone `alpenglow_observed` measurement uses `schema=3` cumulative counters documented in the [schema-v3 contract](docs/alpenglow-monitoring-schema-v3.md). Untagged historical data is legacy-unclassified and is intentionally excluded from normal cluster-scoped dashboard views; do not assign it retrospectively from a pubkey.
 
 ## RPC and epoch ETA behavior
 
