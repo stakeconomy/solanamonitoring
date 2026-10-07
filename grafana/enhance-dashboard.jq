@@ -26,6 +26,24 @@ def target($ref; $expr; $legend):
     "refId": $ref
   };
 
+def alpenglow_selector:
+  "{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}";
+
+def alpenglow_included_increase:
+  "increase(alpenglow_observed_included_total" + alpenglow_selector + "[10m])";
+
+def alpenglow_expected_increase:
+  "increase(alpenglow_observed_expected_total" + alpenglow_selector + "[10m])";
+
+def alpenglow_missed_increase:
+  "increase(alpenglow_observed_missed_total" + alpenglow_selector + "[10m])";
+
+def alpenglow_rate:
+  "(100 * " + alpenglow_included_increase + " / " + alpenglow_expected_increase + ") and on(cluster,genesis,consensus,pubkey,vote_account,schema) (" + alpenglow_expected_increase + " > 0)";
+
+def alpenglow_disclosure:
+  "RPC-derived estimate using a bounded reference cohort; not direct certificate telemetry";
+
 def stat_panel($id; $title; $description; $expr; $unit; $x; $thresholds):
   {
     "datasource": datasource,
@@ -105,7 +123,7 @@ def timeline_panel($id; $title; $description; $expr; $x; $mappings):
 def observed_inclusion_panel:
   {
     "datasource": datasource,
-    "description": "RPC-derived estimate of vote inclusion over time. The expected count is derived from a bounded reference cohort; this is not direct certificate telemetry.",
+    "description": (alpenglow_disclosure + ". Rolling ten-minute inclusion percentage; periods with zero estimated opportunities are omitted."),
     "fieldConfig": {
       "defaults": {
         "color": {"mode": "palette-classic"},
@@ -114,7 +132,7 @@ def observed_inclusion_panel:
         "mappings": [],
         "min": 0,
         "max": 100,
-        "noValue": "Collecting vote data",
+        "noValue": "No vote opportunities in the last 10 minutes",
         "unit": "percent"
       },
       "overrides": []
@@ -127,12 +145,66 @@ def observed_inclusion_panel:
       "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "right", "showLegend": true},
       "tooltip": {"mode": "multi", "sort": "desc"}
     },
-    "targets": [
-      target("A"; "clamp_max((100 * nodemonitor_alpenglowObservedIncluded{consensus=\"alpenglow\",pubkey=\"$pubkey\"} / nodemonitor_alpenglowObservedExpected{consensus=\"alpenglow\",pubkey=\"$pubkey\"}), 100) and nodemonitor_alpenglowObservedReady{consensus=\"alpenglow\",pubkey=\"$pubkey\"} == 1 and nodemonitor_alpenglowObservedExpected{consensus=\"alpenglow\",pubkey=\"$pubkey\"} > 0"; "Inclusion rate")
-    ],
+    "targets": [target("A"; alpenglow_rate; "Inclusion rate")],
     "title": "Alpenglow inclusion rate history",
     "transparent": true,
     "type": "timeseries"
+  };
+
+def observed_status_panel:
+  ("alpenglow_observed_ready" + alpenglow_selector) as $ready
+  | ("time() - timestamp(alpenglow_observed_observed_slot" + alpenglow_selector + ")") as $age
+  | alpenglow_expected_increase as $expected
+  | (
+      "((0 * ((" + $age + ") > 5)) + 4)"
+      + " or on(cluster,genesis,consensus,pubkey,vote_account,schema) ((0 * ((" + $ready + " == 1) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((" + $age + ") <= 5) and on(cluster,genesis,consensus,pubkey,vote_account,schema) (" + $expected + " == 0))) + 3)"
+      + " or on(cluster,genesis,consensus,pubkey,vote_account,schema) ((0 * ((" + $ready + " == 1) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((" + $age + ") <= 5) and on(cluster,genesis,consensus,pubkey,vote_account,schema) (" + $expected + " > 0))) + 2)"
+      + " or on(cluster,genesis,consensus,pubkey,vote_account,schema) ((0 * ((" + $ready + " == 0) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((" + $age + ") <= 5))) + 1)"
+    ) as $status
+  | {
+    "datasource": datasource,
+    "description": (alpenglow_disclosure + ". Uses the latest ready value and actual sample timestamp; samples older than five seconds are stale."),
+    "fieldConfig": {
+      "defaults": {
+        "color": {"mode": "thresholds"},
+        "decimals": 0,
+        "mappings": [{
+          "options": {
+            "1": {"color": "orange", "index": 0, "text": "Collecting / latest gap unattributed"},
+            "2": {"color": "green", "index": 1, "text": "Current gap attributed"},
+            "3": {"color": "blue", "index": 2, "text": "No vote opportunities in the last 10 minutes"},
+            "4": {"color": "red", "index": 3, "text": "Stale — last sample older than 5 seconds"}
+          },
+          "type": "value"
+        }],
+        "noValue": "No recent samples",
+        "thresholds": {"mode": "absolute", "steps": [{"color": "orange", "value": null}]},
+        "unit": "none"
+      },
+      "overrides": []
+    },
+    "gridPos": {"h": 4, "w": 6, "x": 18, "y": 55},
+    "id": 170,
+    "interval": "2s",
+    "maxDataPoints": 1,
+    "options": {
+      "colorMode": "background",
+      "graphMode": "none",
+      "justifyMode": "auto",
+      "orientation": "horizontal",
+      "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+      "textMode": "value_and_name"
+    },
+    "pluginVersion": "9.2.3",
+    "targets": [
+      (target("A"; $ready; "Ready") | .hide = true),
+      (target("B"; $age; "Sample age") | .hide = true),
+      (target("C"; $expected; "Estimated opportunities") | .hide = true),
+      target("D"; $status; "Collection status")
+    ],
+    "title": "Alpenglow collection status",
+    "transparent": true,
+    "type": "stat"
   };
 
 def mount_filter:
@@ -298,10 +370,26 @@ def interface_filter:
     and (all(.panels[]; .id != 170 and .id != 172))
   ) as $observed_inclusion_layout_done
 | (
-    $observed_inclusion_layout_done
-    and all(.panels[] | select(.id == 168 or .id == 169 or .id == 171);
-      (.description | contains("bounded reference cohort"))
+    any(.panels[]; .id == 168 and .title == "Alpenglow vote inclusion rate — last 10 minutes")
+    and any(.panels[]; .id == 169 and .title == "Alpenglow vote counts — last 10 minutes")
+    and any(.panels[]; .id == 170 and .title == "Alpenglow collection status")
+    and any(.panels[]; .id == 171 and .title == "Alpenglow inclusion rate history")
+    and (all(.panels[]; .id != 172))
+  ) as $observed_inclusion_v3_layout_done
+| (
+    $observed_inclusion_v3_layout_done
+    and all(.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171);
+      (.description | contains(alpenglow_disclosure))
+      and all(.targets[]; (.expr | contains("schema=\"3\"")))
     )
+    and any(.panels[]; .id == 168 and .targets[0].expr == alpenglow_rate)
+    and any(.panels[]; .id == 169 and [.targets[].expr] == [
+      ("round(" + alpenglow_included_increase + ")"),
+      ("round(" + alpenglow_expected_increase + ")"),
+      ("round(" + alpenglow_missed_increase + ")")
+    ])
+    and any(.panels[]; .id == 170 and any(.targets[]; .refId == "D" and (.expr | contains("(0 *"))))
+    and any(.panels[]; .id == 171 and .targets[0].expr == alpenglow_rate)
   ) as $observed_inclusion_done
 | (any(.panels[]; .id == 54 and .targets[0].instant == true and .targets[0].range == false)) as $query_optimization_done
 | (($pubkey_var.label == "Validator / system") and ($server_var.hide == 2)) as $selector_linked
@@ -445,7 +533,7 @@ def interface_filter:
     elif .id == 165 then
       .gridPos = {"h": 3, "w": 6, "x": 18, "y": 8}
       | .title = "Alpenglow reward accounting"
-      | .description = "Post-migration epochCredits tuple delta shown in SOL; reward accounting only, not performance."
+      | .description = (alpenglow_disclosure + ". Post-migration epochCredits tuple delta shown in SOL; reward accounting only, not performance.")
       | .targets[0].legendFormat = "Alpenglow reward accounting"
       | .targets[0].expr = "nodemonitor_alpenglowRewardAccountingLamports{consensus=\"alpenglow\",pubkey=\"$pubkey\"} / 1e9"
       | .fieldConfig.defaults.unit = "SOL"
@@ -681,7 +769,7 @@ def interface_filter:
 | if $observed_inclusion_done then
     .
   else
-    (if $observed_inclusion_layout_done then
+    (if ($observed_inclusion_layout_done or $observed_inclusion_v3_layout_done) then
       .panels |= map(
         select(.id as $id | ([168, 169, 170, 171, 172] | index($id)) == null)
       )
@@ -696,28 +784,29 @@ def interface_filter:
     | .panels += [
       (
         stat_panel(
-          168; "Alpenglow vote inclusion rate";
-          "RPC-derived estimate of included votes versus estimated possible votes. The expected count is derived from a bounded reference cohort; this is not direct certificate telemetry.";
-          "clamp_max((100 * last_over_time(nodemonitor_alpenglowObservedIncluded{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) / last_over_time(nodemonitor_alpenglowObservedExpected{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m])), 100) and last_over_time(nodemonitor_alpenglowObservedReady{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) == 1 and last_over_time(nodemonitor_alpenglowObservedExpected{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) > 0";
+          168; "Alpenglow vote inclusion rate — last 10 minutes";
+          (alpenglow_disclosure + ". Rolling included estimate divided by rolling expected estimate; zero-opportunity windows are shown as no value.");
+          alpenglow_rate;
           "percent"; 0;
           [{"color": "red", "value": null}, {"color": "yellow", "value": 80}, {"color": "green", "value": 95}]
-        ) | .gridPos = {"h": 4, "w": 8, "x": 0, "y": 55}
+        ) | .gridPos = {"h": 4, "w": 6, "x": 0, "y": 55}
         | .fieldConfig.defaults.max = 100
       ),
       (
         stat_panel(
-          169; "Alpenglow vote counts";
-          "RPC-derived estimate of included, possible, and missed votes. Estimated possible and missed counts are derived from a bounded reference cohort; counts remain raw estimates, not direct certificate telemetry.";
-          "last_over_time(nodemonitor_alpenglowObservedIncluded{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) and last_over_time(nodemonitor_alpenglowObservedReady{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) == 1 and last_over_time(nodemonitor_alpenglowObservedExpected{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) > 0";
+          169; "Alpenglow vote counts — last 10 minutes";
+          (alpenglow_disclosure + ". Display-rounded rolling estimates account for increase() extrapolation at window boundaries.");
+          ("round(" + alpenglow_included_increase + ")");
           "none"; 8;
           [{"color": "green", "value": null}]
-        ) | .gridPos = {"h": 4, "w": 16, "x": 8, "y": 55}
+        ) | .gridPos = {"h": 4, "w": 12, "x": 6, "y": 55}
         | .targets = [
-            target("A"; "last_over_time(nodemonitor_alpenglowObservedIncluded{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) and last_over_time(nodemonitor_alpenglowObservedReady{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) == 1 and last_over_time(nodemonitor_alpenglowObservedExpected{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) > 0"; "Included"),
-            target("B"; "last_over_time(nodemonitor_alpenglowObservedExpected{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) and last_over_time(nodemonitor_alpenglowObservedReady{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) == 1 and last_over_time(nodemonitor_alpenglowObservedExpected{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) > 0"; "Estimated possible"),
-            target("C"; "last_over_time(nodemonitor_alpenglowObservedMissed{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) and last_over_time(nodemonitor_alpenglowObservedReady{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) == 1 and last_over_time(nodemonitor_alpenglowObservedExpected{consensus=\"alpenglow\",pubkey=\"$pubkey\"}[5m]) > 0"; "Estimated missed")
+            target("A"; ("round(" + alpenglow_included_increase + ")"); "Included"),
+            target("B"; ("round(" + alpenglow_expected_increase + ")"); "Estimated possible"),
+            target("C"; ("round(" + alpenglow_missed_increase + ")"); "Estimated missed")
           ]
       ),
+      observed_status_panel,
       observed_inclusion_panel
     ]
   end
@@ -725,7 +814,12 @@ def interface_filter:
     if (.type == "stat" or .type == "gauge" or .type == "bargauge") then
       .maxDataPoints = 1
       | .targets |= map(.instant = true | .range = false)
-      | .fieldConfig.defaults.noValue = (if .id == 168 or .id == 169 then "Collecting vote data" else "No recent data" end)
+      | .fieldConfig.defaults.noValue = (
+          if .id == 168 then "No vote opportunities in the last 10 minutes"
+          elif .id == 169 or .id == 170 then "No recent samples"
+          else "No recent data"
+          end
+        )
       | if .type == "stat" then .options.graphMode = "none" else . end
     elif .type == "state-timeline" then
       .interval = "$inter"

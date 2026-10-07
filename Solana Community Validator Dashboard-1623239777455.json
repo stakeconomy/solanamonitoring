@@ -2403,7 +2403,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Post-migration epochCredits tuple delta shown in SOL; reward accounting only, not performance.",
+      "description": "RPC-derived estimate using a bounded reference cohort; not direct certificate telemetry. Post-migration epochCredits tuple delta shown in SOL; reward accounting only, not performance.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -3940,7 +3940,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "RPC-derived estimate of included votes versus estimated possible votes. The expected count is derived from a bounded reference cohort; this is not direct certificate telemetry.",
+      "description": "RPC-derived estimate using a bounded reference cohort; not direct certificate telemetry. Rolling included estimate divided by rolling expected estimate; zero-opportunity windows are shown as no value.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -3948,7 +3948,7 @@
           },
           "decimals": 2,
           "mappings": [],
-          "noValue": "Collecting vote data",
+          "noValue": "No vote opportunities in the last 10 minutes",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -3973,7 +3973,7 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 8,
+        "w": 6,
         "x": 0,
         "y": 55
       },
@@ -4001,15 +4001,15 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "clamp_max((100 * last_over_time(nodemonitor_alpenglowObservedIncluded{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m]) / last_over_time(nodemonitor_alpenglowObservedExpected{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])), 100) and last_over_time(nodemonitor_alpenglowObservedReady{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m]) == 1 and last_over_time(nodemonitor_alpenglowObservedExpected{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m]) > 0",
+          "expr": "(100 * increase(alpenglow_observed_included_total{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}[10m]) / increase(alpenglow_observed_expected_total{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}[10m])) and on(cluster,genesis,consensus,pubkey,vote_account,schema) (increase(alpenglow_observed_expected_total{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}[10m]) > 0)",
           "hide": false,
-          "legendFormat": "Alpenglow vote inclusion rate",
+          "legendFormat": "Alpenglow vote inclusion rate — last 10 minutes",
           "range": false,
           "refId": "A",
           "instant": true
         }
       ],
-      "title": "Alpenglow vote inclusion rate",
+      "title": "Alpenglow vote inclusion rate — last 10 minutes",
       "transparent": true,
       "type": "stat",
       "maxDataPoints": 1
@@ -4019,7 +4019,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "RPC-derived estimate of included, possible, and missed votes. Estimated possible and missed counts are derived from a bounded reference cohort; counts remain raw estimates, not direct certificate telemetry.",
+      "description": "RPC-derived estimate using a bounded reference cohort; not direct certificate telemetry. Display-rounded rolling estimates account for increase() extrapolation at window boundaries.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -4027,7 +4027,7 @@
           },
           "decimals": 2,
           "mappings": [],
-          "noValue": "Collecting vote data",
+          "noValue": "No recent samples",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -4043,8 +4043,8 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 16,
-        "x": 8,
+        "w": 12,
+        "x": 6,
         "y": 55
       },
       "id": 169,
@@ -4071,7 +4071,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "last_over_time(nodemonitor_alpenglowObservedIncluded{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m]) and last_over_time(nodemonitor_alpenglowObservedReady{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m]) == 1 and last_over_time(nodemonitor_alpenglowObservedExpected{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m]) > 0",
+          "expr": "round(increase(alpenglow_observed_included_total{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}[10m]))",
           "hide": false,
           "legendFormat": "Included",
           "range": false,
@@ -4084,7 +4084,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "last_over_time(nodemonitor_alpenglowObservedExpected{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m]) and last_over_time(nodemonitor_alpenglowObservedReady{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m]) == 1 and last_over_time(nodemonitor_alpenglowObservedExpected{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m]) > 0",
+          "expr": "round(increase(alpenglow_observed_expected_total{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}[10m]))",
           "hide": false,
           "legendFormat": "Estimated possible",
           "range": false,
@@ -4097,7 +4097,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "last_over_time(nodemonitor_alpenglowObservedMissed{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m]) and last_over_time(nodemonitor_alpenglowObservedReady{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m]) == 1 and last_over_time(nodemonitor_alpenglowObservedExpected{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m]) > 0",
+          "expr": "round(increase(alpenglow_observed_missed_total{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}[10m]))",
           "hide": false,
           "legendFormat": "Estimated missed",
           "range": false,
@@ -4105,7 +4105,7 @@
           "instant": true
         }
       ],
-      "title": "Alpenglow vote counts",
+      "title": "Alpenglow vote counts — last 10 minutes",
       "transparent": true,
       "type": "stat",
       "maxDataPoints": 1
@@ -4115,7 +4115,142 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "RPC-derived estimate of vote inclusion over time. The expected count is derived from a bounded reference cohort; this is not direct certificate telemetry.",
+      "description": "RPC-derived estimate using a bounded reference cohort; not direct certificate telemetry. Uses the latest ready value and actual sample timestamp; samples older than five seconds are stale.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [
+            {
+              "options": {
+                "1": {
+                  "color": "orange",
+                  "index": 0,
+                  "text": "Collecting / latest gap unattributed"
+                },
+                "2": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "Current gap attributed"
+                },
+                "3": {
+                  "color": "blue",
+                  "index": 2,
+                  "text": "No vote opportunities in the last 10 minutes"
+                },
+                "4": {
+                  "color": "red",
+                  "index": 3,
+                  "text": "Stale — last sample older than 5 seconds"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "No recent samples",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 55
+      },
+      "id": 170,
+      "interval": "2s",
+      "maxDataPoints": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "pluginVersion": "9.2.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "alpenglow_observed_ready{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}",
+          "hide": true,
+          "legendFormat": "Ready",
+          "range": false,
+          "refId": "A",
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "time() - timestamp(alpenglow_observed_observed_slot{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"})",
+          "hide": true,
+          "legendFormat": "Sample age",
+          "range": false,
+          "refId": "B",
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "increase(alpenglow_observed_expected_total{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}[10m])",
+          "hide": true,
+          "legendFormat": "Estimated opportunities",
+          "range": false,
+          "refId": "C",
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "((0 * ((time() - timestamp(alpenglow_observed_observed_slot{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"})) > 5)) + 4) or on(cluster,genesis,consensus,pubkey,vote_account,schema) ((0 * ((alpenglow_observed_ready{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"} == 1) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((time() - timestamp(alpenglow_observed_observed_slot{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"})) <= 5) and on(cluster,genesis,consensus,pubkey,vote_account,schema) (increase(alpenglow_observed_expected_total{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}[10m]) == 0))) + 3) or on(cluster,genesis,consensus,pubkey,vote_account,schema) ((0 * ((alpenglow_observed_ready{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"} == 1) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((time() - timestamp(alpenglow_observed_observed_slot{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"})) <= 5) and on(cluster,genesis,consensus,pubkey,vote_account,schema) (increase(alpenglow_observed_expected_total{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}[10m]) > 0))) + 2) or on(cluster,genesis,consensus,pubkey,vote_account,schema) ((0 * ((alpenglow_observed_ready{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"} == 0) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((time() - timestamp(alpenglow_observed_observed_slot{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"})) <= 5))) + 1)",
+          "hide": false,
+          "legendFormat": "Collection status",
+          "range": false,
+          "refId": "D",
+          "instant": true
+        }
+      ],
+      "title": "Alpenglow collection status",
+      "transparent": true,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "RPC-derived estimate using a bounded reference cohort; not direct certificate telemetry. Rolling ten-minute inclusion percentage; periods with zero estimated opportunities are omitted.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -4131,7 +4266,7 @@
           "mappings": [],
           "min": 0,
           "max": 100,
-          "noValue": "Collecting vote data",
+          "noValue": "No vote opportunities in the last 10 minutes",
           "unit": "percent"
         },
         "overrides": []
@@ -4167,7 +4302,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "clamp_max((100 * nodemonitor_alpenglowObservedIncluded{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} / nodemonitor_alpenglowObservedExpected{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}), 100) and nodemonitor_alpenglowObservedReady{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1 and nodemonitor_alpenglowObservedExpected{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} > 0",
+          "expr": "(100 * increase(alpenglow_observed_included_total{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}[10m]) / increase(alpenglow_observed_expected_total{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}[10m])) and on(cluster,genesis,consensus,pubkey,vote_account,schema) (increase(alpenglow_observed_expected_total{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}[10m]) > 0)",
           "hide": false,
           "legendFormat": "Inclusion rate",
           "range": true,
