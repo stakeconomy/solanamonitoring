@@ -9,8 +9,9 @@ enhancement="$repo_dir/grafana/enhance-dashboard.jq"
 transformed="$(mktemp)"
 enhanced="$(mktemp)"
 unmigrated="$(mktemp)"
+canonical_alpenglow_panels="$(mktemp)"
 migration_dir="$(mktemp -d)"
-trap 'rm -f "$transformed" "$enhanced" "$unmigrated"; rm -rf "$migration_dir"' EXIT
+trap 'rm -f "$transformed" "$enhanced" "$unmigrated" "$canonical_alpenglow_panels"; rm -rf "$migration_dir"' EXIT
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -168,6 +169,10 @@ assert_alpenglow_v3() {
       and (targets == [{"datasource":{"type":"prometheus","uid":"${DS_PROMETHEUS}"},"editorMode":"code","expr":$rate,"hide":false,"legendFormat":"Inclusion rate","range":true,"refId":"A","instant":false}])
     )
   ' "$file" >/dev/null || fail "$label does not contain the canonical schema-v3 Alpenglow panels"
+  jq -e --slurpfile canonical "$canonical_alpenglow_panels" '
+    ([.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171)] | sort_by(.id))
+    == $canonical[0]
+  ' "$file" >/dev/null || fail "$label contains schema-v3 Alpenglow panel-object drift"
 }
 
 migrate_and_assert() {
@@ -208,6 +213,9 @@ migrate_and_assert() {
   || fail 'canonical Grafana dashboard symlink targets the wrong root representation'
 
 jq -e . "$dashboard" >/dev/null || fail 'dashboard is not valid JSON'
+
+jq '[.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171)] | sort_by(.id)' \
+  "$dashboard" >"$canonical_alpenglow_panels"
 
 jq -e '.uid == "f2b2HcaGz25"' "$dashboard" >/dev/null \
   || fail 'dashboard UID does not target the canonical production dashboard'
@@ -532,6 +540,12 @@ mutate_and_migrate 'noncanonical-rate-expression' '(.panels[] | select(.id == 16
 mutate_and_migrate 'noncanonical-count-expression' '(.panels[] | select(.id == 169) | .targets[1].expr) = "vector(99)"'
 mutate_and_migrate 'noncanonical-status-expression' '(.panels[] | select(.id == 170) | .targets[] | select(.refId == "D") | .expr) = "(0 * alpenglow_observed_ready{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}) + 9"'
 mutate_and_migrate 'noncanonical-history-expression' '(.panels[] | select(.id == 171) | .targets[0].expr) = "vector(99)"'
+mutate_and_migrate 'noncanonical-rate-max' '(.panels[] | select(.id == 168) | .fieldConfig.defaults.max) = 99'
+mutate_and_migrate 'noncanonical-count-thresholds' '(.panels[] | select(.id == 169) | .fieldConfig.defaults.thresholds.steps[0].color) = "red"'
+mutate_and_migrate 'noncanonical-status-color-mode' '(.panels[] | select(.id == 170) | .options.colorMode) = "value"'
+mutate_and_migrate 'noncanonical-status-text-mode' '(.panels[] | select(.id == 170) | .options.textMode) = "auto"'
+mutate_and_migrate 'noncanonical-history-plugin-version' '(.panels[] | select(.id == 171) | .pluginVersion) = "0.0.0"'
+mutate_and_migrate 'noncanonical-panel-datasource' '(.panels[] | select(.id == 168) | .datasource.uid) = "drifted-datasource"'
 mutate_and_migrate 'partial-schema-v3' '.panels |= map(select(.id != 169))'
 
 printf '%s\n' 'dashboard tests passed'

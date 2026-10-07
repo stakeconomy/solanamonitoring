@@ -245,6 +245,15 @@ git add grafana/enhance-dashboard.jq grafana/solana-community-validator-dashboar
 git commit -m "feat: graph cumulative Alpenglow inclusion estimates"
 ```
 
+#### Task 4 implementation report — canonical hardening round 2
+
+- Added a strict RED regression proving the previous detector preserved drift in panel 168's `fieldConfig.defaults.max` (`FAIL: noncanonical-rate-max migration contains schema-v3 Alpenglow panel-object drift`).
+- Replaced partial field signatures with full-object equality against the four canonical helper-generated panels (IDs 168–171), after applying the same query normalization used by the dashboard transform.
+- Kept datasource UIDs canonical as `${DS_PROMETHEUS}`; datasource drift now forces deterministic panel rebuild before the final global datasource normalization pass.
+- Made migration assertions exhaustive against the canonical dashboard panel objects and added rebuild probes for maxima, thresholds, status `colorMode`, status `textMode`, plugin version, and datasource UID.
+- Preserved byte-exact idempotence, legacy-layout migration, status PromQL semantics, schema-v3 queries, and unchanged Tower panels.
+- Verified on October 7, 2026 with Prometheus `promtool` 3.15.0: shell syntax, monitor tests, focused schema-v3 collector tests, dashboard tests, Telegraf tests, and `git diff --check` all passed.
+
 ---
 
 ### Task 5: Whole-branch verification and release evidence

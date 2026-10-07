@@ -120,6 +120,32 @@ def timeline_panel($id; $title; $description; $expr; $x; $mappings):
     "type": "state-timeline"
   };
 
+def observed_rate_panel:
+  stat_panel(
+    168; "Alpenglow vote inclusion rate — last 10 minutes";
+    (alpenglow_disclosure + ". Rolling included estimate divided by rolling expected estimate; zero-opportunity windows are shown as no value.");
+    alpenglow_rate;
+    "percent"; 0;
+    [{"color": "red", "value": null}, {"color": "yellow", "value": 80}, {"color": "green", "value": 95}]
+  )
+  | .gridPos = {"h": 4, "w": 6, "x": 0, "y": 55}
+  | .fieldConfig.defaults.max = 100;
+
+def observed_counts_panel:
+  stat_panel(
+    169; "Alpenglow vote counts — last 10 minutes";
+    (alpenglow_disclosure + ". Display-rounded rolling estimates account for increase() extrapolation at window boundaries.");
+    ("round(" + alpenglow_included_increase + ")");
+    "none"; 8;
+    [{"color": "green", "value": null}]
+  )
+  | .gridPos = {"h": 4, "w": 12, "x": 6, "y": 55}
+  | .targets = [
+      target("A"; ("round(" + alpenglow_included_increase + ")"); "Included"),
+      target("B"; ("round(" + alpenglow_expected_increase + ")"); "Estimated possible"),
+      target("C"; ("round(" + alpenglow_missed_increase + ")"); "Estimated missed")
+    ];
+
 def observed_inclusion_panel:
   {
     "datasource": datasource,
@@ -214,76 +240,38 @@ def observed_status_panel:
     "type": "stat"
   };
 
-def target_signature:
-  [.targets[] | {datasource,editorMode,expr,hide,legendFormat,range,refId,instant}];
+def normalize_panel_queries:
+  if (.type == "stat" or .type == "gauge" or .type == "bargauge") then
+    .maxDataPoints = 1
+    | .targets |= map(.instant = true | .range = false)
+    | .fieldConfig.defaults.noValue = (
+        if .id == 168 then "No vote opportunities in the last 10 minutes"
+        elif .id == 169 or .id == 170 then "No recent samples"
+        else "No recent data"
+        end
+      )
+    | if .type == "stat" then .options.graphMode = "none" else . end
+  elif .type == "state-timeline" then
+    .interval = "$inter"
+    | .maxDataPoints = 1000
+    | .targets |= map(.instant = false | .range = true)
+  elif .type == "timeseries" then
+    .id as $panel_id
+    | .interval = (if ([56, 144, 75, 61, 126, 121, 76, 4, 122, 57] | index($panel_id)) != null then "$inter" else "30s" end)
+    | .maxDataPoints = 1200
+    | .targets |= map(.instant = false | .range = true)
+  else
+    .
+  end;
+
+def alpenglow_v3_panels:
+  [observed_rate_panel, observed_counts_panel, observed_status_panel, observed_inclusion_panel]
+  | map(normalize_panel_queries);
 
 def alpenglow_v3_canonical:
-  ("alpenglow_observed_ready" + alpenglow_selector) as $ready
-  | ("time() - timestamp(alpenglow_observed_observed_slot" + alpenglow_selector + ")") as $age
-  | alpenglow_status_expression as $status
-  | ([.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171 or .id == 172)] | length == 4)
-  and ([.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171) | .id] | sort == [168,169,170,171])
-  and ([.panels[].id] | index(172) == null)
-  and any(.panels[];
-    .id == 168
-    and .title == "Alpenglow vote inclusion rate — last 10 minutes"
-    and .description == (alpenglow_disclosure + ". Rolling included estimate divided by rolling expected estimate; zero-opportunity windows are shown as no value.")
-    and .type == "stat"
-    and .gridPos == {"h":4,"w":6,"x":0,"y":55}
-    and .fieldConfig.defaults.unit == "percent"
-    and .fieldConfig.defaults.noValue == "No vote opportunities in the last 10 minutes"
-    and .fieldConfig.defaults.mappings == []
-    and (target_signature == [{"datasource":datasource,"editorMode":"code","expr":alpenglow_rate,"hide":false,"legendFormat":"Alpenglow vote inclusion rate — last 10 minutes","range":false,"refId":"A","instant":true}])
-  )
-  and any(.panels[];
-    .id == 169
-    and .title == "Alpenglow vote counts — last 10 minutes"
-    and .description == (alpenglow_disclosure + ". Display-rounded rolling estimates account for increase() extrapolation at window boundaries.")
-    and .type == "stat"
-    and .gridPos == {"h":4,"w":12,"x":6,"y":55}
-    and .fieldConfig.defaults.unit == "none"
-    and .fieldConfig.defaults.noValue == "No recent samples"
-    and .fieldConfig.defaults.mappings == []
-    and (target_signature == [
-      {"datasource":datasource,"editorMode":"code","expr":("round(" + alpenglow_included_increase + ")"),"hide":false,"legendFormat":"Included","range":false,"refId":"A","instant":true},
-      {"datasource":datasource,"editorMode":"code","expr":("round(" + alpenglow_expected_increase + ")"),"hide":false,"legendFormat":"Estimated possible","range":false,"refId":"B","instant":true},
-      {"datasource":datasource,"editorMode":"code","expr":("round(" + alpenglow_missed_increase + ")"),"hide":false,"legendFormat":"Estimated missed","range":false,"refId":"C","instant":true}
-    ])
-  )
-  and any(.panels[];
-    .id == 170
-    and .title == "Alpenglow collection status"
-    and .description == (alpenglow_disclosure + ". Uses the latest ready value and actual sample timestamp; samples older than five seconds are stale.")
-    and .type == "stat"
-    and .gridPos == {"h":4,"w":6,"x":18,"y":55}
-    and .interval == "2s"
-    and .fieldConfig.defaults.unit == "none"
-    and .fieldConfig.defaults.noValue == "No recent samples"
-    and .fieldConfig.defaults.mappings == [{"options":{
-      "1":{"color":"orange","index":0,"text":"Collecting / latest gap unattributed"},
-      "2":{"color":"green","index":1,"text":"Current gap attributed"},
-      "3":{"color":"blue","index":2,"text":"No vote opportunities in the last 10 minutes"},
-      "4":{"color":"red","index":3,"text":"Stale — last sample older than 5 seconds"}
-    },"type":"value"}]
-    and (target_signature == [
-      {"datasource":datasource,"editorMode":"code","expr":$ready,"hide":true,"legendFormat":"Ready","range":false,"refId":"A","instant":true},
-      {"datasource":datasource,"editorMode":"code","expr":$age,"hide":true,"legendFormat":"Sample age","range":false,"refId":"B","instant":true},
-      {"datasource":datasource,"editorMode":"code","expr":alpenglow_expected_increase,"hide":true,"legendFormat":"Estimated opportunities","range":false,"refId":"C","instant":true},
-      {"datasource":datasource,"editorMode":"code","expr":$status,"hide":false,"legendFormat":"Collection status","range":false,"refId":"D","instant":true}
-    ])
-  )
-  and any(.panels[];
-    .id == 171
-    and .title == "Alpenglow inclusion rate history"
-    and .description == (alpenglow_disclosure + ". Rolling ten-minute inclusion percentage; periods with zero estimated opportunities are omitted.")
-    and .type == "timeseries"
-    and .gridPos == {"h":8,"w":24,"x":0,"y":59}
-    and .fieldConfig.defaults.unit == "percent"
-    and .fieldConfig.defaults.noValue == "No vote opportunities in the last 10 minutes"
-    and .fieldConfig.defaults.custom.spanNulls == false
-    and .fieldConfig.defaults.mappings == []
-    and (target_signature == [{"datasource":datasource,"editorMode":"code","expr":alpenglow_rate,"hide":false,"legendFormat":"Inclusion rate","range":true,"refId":"A","instant":false}])
-  );
+  ([.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171)] | sort_by(.id))
+    == (alpenglow_v3_panels | sort_by(.id))
+  and ([.panels[].id] | index(172) == null);
 
 def mount_filter:
   "^/((boot|dev|proc|run|snap|sys|tmp|var/lib|var/snap|var/tmp)(/.*)?|(home/[^/]+|mnt)/[.].*)$";
@@ -829,59 +817,9 @@ def interface_filter:
     else
       .panels |= map(if .gridPos.y >= 55 then .gridPos.y += 12 else . end)
     end)
-    | .panels += [
-      (
-        stat_panel(
-          168; "Alpenglow vote inclusion rate — last 10 minutes";
-          (alpenglow_disclosure + ". Rolling included estimate divided by rolling expected estimate; zero-opportunity windows are shown as no value.");
-          alpenglow_rate;
-          "percent"; 0;
-          [{"color": "red", "value": null}, {"color": "yellow", "value": 80}, {"color": "green", "value": 95}]
-        ) | .gridPos = {"h": 4, "w": 6, "x": 0, "y": 55}
-        | .fieldConfig.defaults.max = 100
-      ),
-      (
-        stat_panel(
-          169; "Alpenglow vote counts — last 10 minutes";
-          (alpenglow_disclosure + ". Display-rounded rolling estimates account for increase() extrapolation at window boundaries.");
-          ("round(" + alpenglow_included_increase + ")");
-          "none"; 8;
-          [{"color": "green", "value": null}]
-        ) | .gridPos = {"h": 4, "w": 12, "x": 6, "y": 55}
-        | .targets = [
-            target("A"; ("round(" + alpenglow_included_increase + ")"); "Included"),
-            target("B"; ("round(" + alpenglow_expected_increase + ")"); "Estimated possible"),
-            target("C"; ("round(" + alpenglow_missed_increase + ")"); "Estimated missed")
-          ]
-      ),
-      observed_status_panel,
-      observed_inclusion_panel
-    ]
+    | .panels += alpenglow_v3_panels
   end
-| .panels |= map(
-    if (.type == "stat" or .type == "gauge" or .type == "bargauge") then
-      .maxDataPoints = 1
-      | .targets |= map(.instant = true | .range = false)
-      | .fieldConfig.defaults.noValue = (
-          if .id == 168 then "No vote opportunities in the last 10 minutes"
-          elif .id == 169 or .id == 170 then "No recent samples"
-          else "No recent data"
-          end
-        )
-      | if .type == "stat" then .options.graphMode = "none" else . end
-    elif .type == "state-timeline" then
-      .interval = "$inter"
-      | .maxDataPoints = 1000
-      | .targets |= map(.instant = false | .range = true)
-    elif .type == "timeseries" then
-      .id as $panel_id
-      | .interval = (if ([56, 144, 75, 61, 126, 121, 76, 4, 122, 57] | index($panel_id)) != null then "$inter" else "30s" end)
-      | .maxDataPoints = 1200
-      | .targets |= map(.instant = false | .range = true)
-    else
-      .
-    end
-  )
+| .panels |= map(normalize_panel_queries)
 | .panels |= sort_by(.gridPos.y, .gridPos.x, .id)
 | walk(
     if type == "object" then
