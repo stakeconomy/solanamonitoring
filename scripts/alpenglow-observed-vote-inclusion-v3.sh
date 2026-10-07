@@ -26,6 +26,15 @@ fail_usage() {
   exit 64
 }
 
+is_solana_pubkey() {
+  [[ ${#1} -ge 32 && ${#1} -le 44 && "$1" =~ ^[1-9A-HJ-NP-Za-km-z]+$ ]]
+}
+
+has_control() {
+  local LC_ALL=C
+  [[ "$1" =~ [[:cntrl:]] ]]
+}
+
 require_commands() {
   local command_name
   for command_name in bash "$curl_bin" jq flock mktemp mv chmod date sed; do
@@ -49,11 +58,15 @@ rpc_timeout="${MONITOR_ALPENGLOW_RPC_TIMEOUT:-0.7}"
 reference_count="${MONITOR_ALPENGLOW_REFERENCE_COUNT:-8}"
 rate_samples="${MONITOR_ALPENGLOW_RATE_SAMPLES:-20}"
 curl_bin="${CURL_BIN:-curl}"
+declare -A seen_args=()
 
 while (($#)); do
   case "$1" in
     --rpc-url|--identity|--vote-account|--state|--rpc-timeout|--reference-count|--rate-samples)
+      [[ -z "${seen_args[$1]:-}" ]] || fail_usage "duplicate argument: $1"
+      seen_args[$1]=1
       (($# >= 2)) || fail_usage "$1 requires a value"
+      [[ "$2" != --* ]] || fail_usage "$1 requires a value"
       case "$1" in
         --rpc-url) rpc_url="$2" ;;
         --identity) identity="$2" ;;
@@ -74,12 +87,18 @@ done
 [[ -n "$identity" ]] || fail_usage '--identity is required'
 [[ -n "$vote_account" ]] || fail_usage '--vote-account is required'
 [[ -n "$state_file" ]] || fail_usage '--state must not be empty'
-[[ "$rpc_timeout" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]] || fail_usage '--rpc-timeout must be a positive number'
+[[ ${#rpc_url} -le 2048 && "$rpc_url" =~ ^https?://[^[:space:][:cntrl:]]+$ ]] || fail_usage '--rpc-url must be an http or https URL'
+is_solana_pubkey "$identity" || fail_usage '--identity must be a 32..44 character Solana Base58 public key'
+is_solana_pubkey "$vote_account" || fail_usage '--vote-account must be a 32..44 character Solana Base58 public key'
+[[ ${#state_file} -le 4096 && "$state_file" == /* ]] || fail_usage '--state must be an absolute path'
+has_control "$state_file" && fail_usage '--state must not contain control characters'
+[[ ! "$state_file" =~ (^|/)\.\.?(/|$) ]] || fail_usage '--state must not contain dot path components'
+[[ ${#rpc_timeout} -le 16 && "$rpc_timeout" =~ ^([0-9]+([.][0-9]+)?|[.][0-9]+)$ ]] || fail_usage '--rpc-timeout must be a positive number'
 [[ ! "$rpc_timeout" =~ ^0*([.]0*)?$ ]] || fail_usage '--rpc-timeout must be positive'
-if [[ ! "$reference_count" =~ ^[1-9][0-9]*$ ]] || ((reference_count > 32)); then
+if [[ ! "$reference_count" =~ ^[1-9][0-9]*$ ]] || ((${#reference_count} > 2)) || ((reference_count > 32)); then
   fail_usage '--reference-count must be between 1 and 32'
 fi
-if [[ ! "$rate_samples" =~ ^[1-9][0-9]*$ ]] || ((rate_samples > 100)); then
+if [[ ! "$rate_samples" =~ ^[1-9][0-9]*$ ]] || ((${#rate_samples} > 3)) || ((rate_samples > 100)); then
   fail_usage '--rate-samples must be between 1 and 100'
 fi
 
@@ -113,7 +132,7 @@ checked_sub() {
 
 rpc_call() {
   "$curl_bin" --silent --show-error --fail --max-time "$rpc_timeout" \
-    --header 'Content-Type: application/json' --data "$1" "$rpc_url"
+    --header 'Content-Type: application/json' --data "$1" --url "$rpc_url" --
 }
 
 influx_tag() {
@@ -122,36 +141,38 @@ influx_tag() {
 
 validate_core_state() {
   local path="$1" totals expected_sum included expected missed unattributed last
-  jq -e --arg genesis "$genesis_expected" '
-    def exact_keys($keys): (keys | sort) == ($keys | sort);
+  jq -e --arg genesis "$genesis_expected" --arg identity "$identity" --arg vote "$vote_account" \
+    --argjson reference_count "$reference_count" --argjson rate_samples "$rate_samples" '
+    def exact_keys($expected): (keys | sort) == ($expected | sort);
     def dec:
       type == "string" and test("^(0|[1-9][0-9]*)$") and
       ((length < 19) or (length == 19 and . <= "9223372036854775807"));
     def pos: dec and . != "0";
+    def pubkey: type == "string" and length >= 32 and length <= 44 and test("^[1-9A-HJ-NP-Za-km-z]+$");
     . as $root |
     exact_keys(["version","genesis","consensus","pubkey","vote_account","config","schedule","epoch","reference_votes","accounts","leader_schedule_epoch","leader_slots","totals","last_attributed_slot"]) and
     .version == 3 and .genesis == $genesis and .consensus == "alpenglow" and
-    (.pubkey|type) == "string" and (.pubkey|length) > 0 and
-    (.vote_account|type) == "string" and (.vote_account|length) > 0 and
+    .pubkey == $identity and .vote_account == $vote and
     (.config | exact_keys(["reference_count","rate_samples"])) and
+    .config.reference_count == $reference_count and .config.rate_samples == $rate_samples and
     (.config.reference_count|type) == "number" and (.config.reference_count|floor) == .config.reference_count and
     .config.reference_count >= 1 and .config.reference_count <= 32 and
     (.config.rate_samples|type) == "number" and (.config.rate_samples|floor) == .config.rate_samples and
     .config.rate_samples >= 1 and .config.rate_samples <= 100 and
     .schedule == {slots_per_epoch:432000,leader_schedule_slot_offset:432000,warmup:true,first_normal_epoch:14,first_normal_slot:524256} and
     (.epoch|dec) and
-    (.reference_votes|type) == "array" and all(.reference_votes[]; type == "string" and length > 0) and
+    (.reference_votes|type) == "array" and all(.reference_votes[]; pubkey) and
     (.reference_votes|unique|length) == (.reference_votes|length) and
     (.reference_votes|index($root.vote_account)|not) and
     (.accounts|type) == "object" and
     ((.accounts|keys|sort) == ([.vote_account] + .reference_votes | sort)) and
-    (.accounts[.vote_account].node|type) == "string" and
+    (.accounts[.vote_account].node|type) == "string" and .accounts[.vote_account].node == .pubkey and
     (.accounts[.vote_account].total|dec) and (.accounts[.vote_account].slot|dec) and
     (.accounts[.vote_account] | exact_keys(["node","total","slot","gcd","samples","increment"])) and
     (all(.accounts[];
       exact_keys(["node","total","slot","gcd","samples","increment"]) and
       (((.node == null) and (.total == null) and (.slot == null)) or
-       ((.node|type) == "string" and (.node|length) > 0 and (.total|dec) and (.slot|dec) and .slot == $root.accounts[$root.vote_account].slot)) and
+       ((.node|pubkey) and (.total|dec) and (.slot|dec) and .slot == $root.accounts[$root.vote_account].slot)) and
       ((.gcd == null) or (.gcd|pos)) and
       ((.increment == null) or (.increment|pos)) and
       (.samples|type) == "number" and (.samples|floor) == .samples and
@@ -180,8 +201,8 @@ write_state_atomic() {
   temp_state="$(mktemp "$state_dir/.alpenglow-observed-v3.XXXXXX")" || return 1
   if ! printf '%s\n' "$document" >"$temp_state" ||
      ! chmod 0600 "$temp_state" ||
-     ! mv -f "$temp_state" "$state_file"; then
-    rm -f "$temp_state"
+     ! mv -f -- "$temp_state" "$state_file"; then
+    rm -f -- "$temp_state"
     return 1
   fi
 }
@@ -196,11 +217,23 @@ emit_measurement() {
 
 state_dir="${state_file%/*}"
 [[ "$state_dir" != "$state_file" ]] || state_dir='.'
-[[ -d "$state_dir" ]] || mkdir -p "$state_dir" 2>/dev/null || {
+[[ -d "$state_dir" ]] || mkdir -p -- "$state_dir" 2>/dev/null || {
   printf 'error: cannot create state directory\n' >&2
   exit 1
 }
-exec {lock_fd}>"${state_file}.lock" || { printf 'error: cannot open state lock\n' >&2; exit 1; }
+[[ ! -L "$state_dir" && -O "$state_dir" ]] || {
+  printf 'error: state directory must be validator-owned and not a symlink\n' >&2
+  exit 1
+}
+lock_file="${state_file}.lock"
+if [[ ! -e "$lock_file" && ! -L "$lock_file" ]]; then
+  (set -o noclobber; : >"$lock_file") 2>/dev/null || true
+fi
+[[ -f "$lock_file" && ! -L "$lock_file" && -O "$lock_file" ]] || {
+  printf 'error: unsafe state lock\n' >&2
+  exit 1
+}
+exec {lock_fd}<>"$lock_file" || { printf 'error: cannot open state lock\n' >&2; exit 1; }
 flock -n "$lock_fd" || exit 0
 
 if [[ -e "$state_file" ]]; then
@@ -218,18 +251,38 @@ batch_payload="$(jq -cn --arg vote "$vote_account" '[
 batch_response="$(rpc_call "$batch_payload" 2>/dev/null)" || { printf 'error: mandatory RPC batch failed\n' >&2; exit 1; }
 
 cold_snapshot="$(jq -cer --arg genesis "$genesis_expected" --arg owner "$vote_program" --arg identity "$identity" '
+  def exact_keys($expected): (keys | sort) == ($expected | sort);
+  def byte: type == "number" and floor == . and . >= 0 and . <= 255;
+  def safe_integer: type == "number" and floor == . and . >= 0 and . <= 9007199254740991;
+  def response($id):
+    map(select(.id == $id)) |
+    if length == 1 and .[0].jsonrpc == "2.0" and (.[0] | exact_keys(["jsonrpc","id","result"]))
+    then .[0] else error("invalid response envelope") end;
   if type != "array" or length != 4 or ([.[].id] | unique | length) != 4 then error("invalid batch ids") else . end |
-  (map(select(.id == "v3-genesis")) | if length == 1 then .[0] else error("genesis id") end) as $g |
-  (map(select(.id == "v3-ag-genesis-cert")) | if length == 1 then .[0] else error("cert id") end) as $c |
-  (map(select(.id == "v3-epoch-schedule")) | if length == 1 then .[0] else error("schedule id") end) as $s |
-  (map(select(.id == "v3-accounts")) | if length == 1 then .[0] else error("accounts id") end) as $a |
-  if any(.[]; has("error")) or $g.result != $genesis or $c.result == null or
-     $s.result != {slotsPerEpoch:432000,leaderScheduleSlotOffset:432000,warmup:true,firstNormalEpoch:14,firstNormalSlot:524256}
+  response("v3-genesis") as $g |
+  response("v3-ag-genesis-cert") as $c |
+  response("v3-epoch-schedule") as $s |
+  response("v3-accounts") as $a |
+  if ($g.result|type) != "string" or $g.result != $genesis or
+     ($c.result|type) != "object" or ($c.result | exact_keys(["block","signature"]) | not) or
+     ($c.result.block|type) != "object" or ($c.result.block | exact_keys(["slot","blockId"]) | not) or
+     ($c.result.block.slot | safe_integer | not) or $c.result.block.slot == 0 or
+     ($c.result.block.blockId|type) != "array" or ($c.result.block.blockId|length) != 32 or
+     (all($c.result.block.blockId[]; byte) | not) or
+     ($c.result.signature|type) != "object" or ($c.result.signature | exact_keys(["bitmap","signature"]) | not) or
+     ($c.result.signature.bitmap|type) != "array" or ($c.result.signature.bitmap|length) == 0 or
+     (all($c.result.signature.bitmap[]; byte) | not) or
+     ($c.result.signature.signature|type) != "array" or ($c.result.signature.signature|length) != 192 or
+     (all($c.result.signature.signature[]; byte) | not) or
+     $s.result != {slotsPerEpoch:432000,leaderScheduleSlotOffset:432000,warmup:true,firstNormalEpoch:14,firstNormalSlot:524256} or
+     ($a.result|type) != "object" or ($a.result | exact_keys(["context","value"]) | not) or
+     ($a.result.context|type) != "object" or ($a.result.context | exact_keys(["slot"]) | not)
   then error("network isolation failed") else . end |
   ($a.result.context.slot) as $slot | ($a.result.value) as $values |
-  if ($slot|type) != "number" or $slot < 0 or $slot > 9007199254740991 or ($slot|floor) != $slot or
+  if ($slot | safe_integer | not) or
      ($values|type) != "array" or ($values|length) != 1 or $values[0] == null or
-     $values[0].owner != $owner or $values[0].data.parsed.type != "vote" or
+     $values[0].owner != $owner or $values[0].data.program != "vote" or
+     $values[0].data.parsed.type != "vote" or
      $values[0].data.parsed.info.nodePubkey != $identity
   then error("invalid monitored account") else . end |
   ($values[0].data.parsed.info.epochCredits) as $history |
@@ -240,14 +293,17 @@ cold_snapshot="$(jq -cer --arg genesis "$genesis_expected" --arg owner "$vote_pr
      ($credit.credits|type) != "string" or ($credit.credits|test("^(0|[1-9][0-9]*)$")|not) or
      ($credit.previousCredits|type) != "string" or ($credit.previousCredits|test("^(0|[1-9][0-9]*)$")|not)
   then error("invalid epoch credit entry") else . end |
-  {slot:($slot|tostring),epoch:$credit.epoch,total:$credit.credits,node:$identity}
+  {slot:($slot|tostring),epoch:$credit.epoch,total:$credit.credits,previous:$credit.previousCredits,node:$identity}
 ' <<<"$batch_response" 2>/dev/null)" || { printf 'error: mandatory RPC data or isolation failure\n' >&2; exit 1; }
 
 observed_slot="$(jq -r '.slot' <<<"$cold_snapshot")"
 credit_epoch="$(jq -r '.epoch' <<<"$cold_snapshot")"
 monitored_total="$(jq -r '.total' <<<"$cold_snapshot")"
-if ! is_u63_decimal "$observed_slot" || ! is_u63_decimal "$credit_epoch" || ! is_u63_decimal "$monitored_total"; then
-  printf 'error: mandatory RPC integer out of range\n' >&2
+previous_total="$(jq -r '.previous' <<<"$cold_snapshot")"
+if ! is_u63_decimal "$observed_slot" || ! is_u63_decimal "$credit_epoch" ||
+   ! is_u63_decimal "$monitored_total" || ! is_u63_decimal "$previous_total" ||
+   ! checked_sub "$monitored_total" "$previous_total" >/dev/null; then
+  printf 'error: mandatory RPC integer out of range or inconsistent\n' >&2
   exit 1
 fi
 if ((10#$observed_slot >= 524256)); then
@@ -269,8 +325,16 @@ accounts="$(jq -cn --arg vote "$vote_account" --arg identity "$identity" --arg t
 optional_payload="$(jq -cn '{jsonrpc:"2.0",id:"v3-vote-accounts",method:"getVoteAccounts",params:[{commitment:"finalized"}]}')"
 if optional_response="$(rpc_call "$optional_payload" 2>/dev/null)"; then
   reference_votes="$(jq -ce --arg own "$vote_account" --argjson limit "$reference_count" '
-    if has("error") or (.result.current|type) != "array" or (.result.delinquent|type) != "array" then error("invalid") else
-      [(.result.current + .result.delinquent)[] | .votePubkey | select(type == "string" and . != $own)] | unique | .[:$limit]
+    def exact_keys($expected): (keys | sort) == ($expected | sort);
+    def pubkey: type == "string" and length >= 32 and length <= 44 and test("^[1-9A-HJ-NP-Za-km-z]+$");
+    if type != "object" or .jsonrpc != "2.0" or .id != "v3-vote-accounts" or
+       (exact_keys(["jsonrpc","id","result"]) | not) or
+       (.result|type) != "object" or (.result | exact_keys(["current","delinquent"]) | not) or
+       (.result.current|type) != "array" or (.result.delinquent|type) != "array" or
+       (all(.result.current[]; (.votePubkey|pubkey) and (.nodePubkey|pubkey)) | not) or
+       (all(.result.delinquent[]; (.votePubkey|pubkey) and (.nodePubkey|pubkey)) | not)
+    then error("invalid") else
+      [(.result.current + .result.delinquent)[] | .votePubkey | select(. != $own)] | unique | .[:$limit]
     end
   ' <<<"$optional_response" 2>/dev/null)" || reference_votes='[]'
 fi

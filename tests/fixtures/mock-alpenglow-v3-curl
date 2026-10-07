@@ -2,14 +2,22 @@
 set -euo pipefail
 
 payload=''
+url=''
+saw_option_termination=0
 while (($#)); do
   case "$1" in
     --data|--data-raw|--data-binary) payload="$2"; shift 2 ;;
-    *) shift ;;
+    --url) url="$2"; shift 2 ;;
+    --header|--max-time) shift 2 ;;
+    --silent|--show-error|--fail) shift ;;
+    --) saw_option_termination=1; shift; (($# == 0)) || { printf 'mock: positional arguments after --\n' >&2; exit 2; } ;;
+    *) printf 'mock: unsafe or unexpected curl argument: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
 
 [[ -n "$payload" ]] || { printf 'mock: missing JSON-RPC payload\n' >&2; exit 2; }
+[[ "$url" == http://* || "$url" == https://* ]] || { printf 'mock: missing safe --url\n' >&2; exit 2; }
+((saw_option_termination == 1)) || { printf 'mock: missing option termination\n' >&2; exit 2; }
 if [[ -n "${MOCK_ALPENGLOW_V3_CALL_LOG:-}" ]]; then
   printf '%s\n' "$payload" >>"$MOCK_ALPENGLOW_V3_CALL_LOG"
 fi
@@ -19,30 +27,50 @@ scenario="${MOCK_ALPENGLOW_V3_SCENARIO:-valid}"
 
 if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$payload"; then
   genesis='4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY'
-  cert='{"certificate":"present"}'
+  cert='{"block":{"slot":1,"blockId":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},"signature":{"bitmap":[1],"signature":['"$(printf '1,%.0s' {1..191})"'1]}}'
   owner='Vote111111111111111111111111111111111111111'
   node="$identity"
+  program='vote'
+  parsed_type='vote'
+  credits='123456'
+  previous_credits='123000'
   schedule='{"slotsPerEpoch":432000,"leaderScheduleSlotOffset":432000,"warmup":true,"firstNormalEpoch":14,"firstNormalSlot":524256}'
+  jsonrpc='2.0'
+  duplicate_id='v3-accounts'
+  accounts_context='{"slot":449000000}'
   case "$scenario" in
     mainnet) genesis='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp' ;;
     tower) cert='null' ;;
-    wrong-node) node='OtherIdentity111111111111111111111111111111' ;;
+    wrong-node) node='OtherNode11111111111111111111111111111111111' ;;
     wrong-owner) owner='11111111111111111111111111111111' ;;
+    wrong-program) program='stake' ;;
+    wrong-type) parsed_type='delegatedVote' ;;
     fixed-schedule) schedule='{"slotsPerEpoch":432001,"leaderScheduleSlotOffset":432000,"warmup":true,"firstNormalEpoch":14,"firstNormalSlot":524256}' ;;
+    malformed-batch-ids) duplicate_id='v3-genesis' ;;
+    bad-jsonrpc) jsonrpc='1.0' ;;
+    malformed-genesis-result) genesis='123' ;;
+    malformed-cert) cert='{"block":{"slot":1,"blockId":[]},"signature":{"bitmap":[],"signature":[]}}' ;;
+    zero-cert-slot) cert='{"block":{"slot":0,"blockId":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},"signature":{"bitmap":[1],"signature":['"$(printf '1,%.0s' {1..191})"'1]}}' ;;
+    malformed-schedule-result) schedule='{"slotsPerEpoch":432000,"leaderScheduleSlotOffset":432000,"warmup":true,"firstNormalEpoch":14}' ;;
+    malformed-accounts-result) accounts_context='{"slot":449000000,"apiVersion":"4.4.0"}' ;;
+    wrong-batch-id) duplicate_id='v3-unknown' ;;
+    previous-max) credits='9223372036854775807'; previous_credits='9223372036854775807' ;;
+    previous-overflow) credits='9223372036854775807'; previous_credits='9223372036854775808' ;;
+    previous-greater) credits='123456'; previous_credits='123457' ;;
   esac
-  duplicate_id='v3-accounts'
-  [[ "$scenario" == malformed-batch-ids ]] && duplicate_id='v3-genesis'
   jq -cn \
-    --arg genesis "$genesis" --argjson cert "$cert" --argjson schedule "$schedule" \
-    --arg owner "$owner" --arg node "$node" --arg accounts_id "$duplicate_id" '
+    --arg jsonrpc "$jsonrpc" --arg genesis "$genesis" --argjson cert "$cert" --argjson schedule "$schedule" \
+    --argjson accounts_context "$accounts_context" \
+    --arg owner "$owner" --arg node "$node" --arg program "$program" --arg parsed_type "$parsed_type" \
+    --arg credits "$credits" --arg previous "$previous_credits" --arg accounts_id "$duplicate_id" '
     [
-      {jsonrpc:"2.0",id:"v3-genesis",result:$genesis},
+      {jsonrpc:$jsonrpc,id:"v3-genesis",result:(if $genesis == "123" then 123 else $genesis end)},
       {jsonrpc:"2.0",id:"v3-ag-genesis-cert",result:$cert},
       {jsonrpc:"2.0",id:"v3-epoch-schedule",result:$schedule},
-      {jsonrpc:"2.0",id:$accounts_id,result:{context:{slot:449000000},value:[{
+      {jsonrpc:"2.0",id:$accounts_id,result:{context:$accounts_context,value:[{
         owner:$owner,
-        data:{program:"vote",parsed:{type:"vote",info:{nodePubkey:$node,epochCredits:[
-          {epoch:"1052",credits:"123456",previousCredits:"123000"}
+        data:{program:$program,parsed:{type:$parsed_type,info:{nodePubkey:$node,epochCredits:[
+          {epoch:"1052",credits:$credits,previousCredits:$previous}
         ]}}}
       }]}}
     ]'
@@ -53,11 +81,31 @@ method="$(jq -r '.method // empty' <<<"$payload")"
 id="$(jq -c '.id' <<<"$payload")"
 case "$method" in
   getVoteAccounts)
-    jq -cn --argjson id "$id" '{jsonrpc:"2.0",id:$id,result:{current:[{
-      votePubkey:"ReferenceVote1111111111111111111111111111111",
-      nodePubkey:"ReferenceNode1111111111111111111111111111111",
-      activatedStake:1000
-    }],delinquent:[]}}'
+    case "$scenario" in
+      optional-bad-jsonrpc)
+        jq -cn --argjson id "$id" '{jsonrpc:"1.0",id:$id,result:{current:[],delinquent:[]}}'
+        ;;
+      optional-wrong-id)
+        jq -cn '{jsonrpc:"2.0",id:"wrong-optional-id",result:{current:[],delinquent:[]}}'
+        ;;
+      optional-malformed-result)
+        jq -cn --argjson id "$id" '{jsonrpc:"2.0",id:$id,result:{current:{},delinquent:[]}}'
+        ;;
+      optional-invalid-reference)
+        jq -cn --argjson id "$id" '{jsonrpc:"2.0",id:$id,result:{current:[{
+          votePubkey:"Reference\nVote111111111111111111111111111111",
+          nodePubkey:"ReferenceNode1111111111111111111111111111111",
+          activatedStake:1000
+        }],delinquent:[]}}'
+        ;;
+      *)
+        jq -cn --argjson id "$id" '{jsonrpc:"2.0",id:$id,result:{current:[{
+          votePubkey:"ReferenceVote1111111111111111111111111111111",
+          nodePubkey:"ReferenceNode1111111111111111111111111111111",
+          activatedStake:1000
+        }],delinquent:[]}}'
+        ;;
+    esac
     ;;
   getLeaderSchedule)
     jq -cn --argjson id "$id" '{jsonrpc:"2.0",id:$id,result:{}}'
