@@ -37,7 +37,56 @@ Rollback phase 2: restore the previous dashboard JSON or panel queries. Do not s
 
 Only after phase 2 is verified against the deployed Grafana UID and authenticated datasource may a later change remove the schema-v2 Alpenglow observed-inclusion call from `monitor.sh`. That retirement is not part of the shadow installation. Keep unrelated schema-v2 `nodemonitor` metrics, old historical series, and old state untouched unless a separately reviewed migration says otherwise.
 
-Rollback phase 3: restore the previous `monitor.sh` and its one-minute Telegraf command, restart Telegraf, and verify fresh schema-v2 samples. Keep the v3 collector and v3 state unchanged unless v3 itself is the fault.
+Before applying the separately reviewed retirement commit, record the exact pre-retirement revision and preserve the executable. The one-minute Telegraf `monitor.sh` command normally remains configured because it still collects all non-retired schema-v2 validator metrics; phase three removes only the legacy Alpenglow sub-collection from that script.
+
+```bash
+REPOSITORY=/home/solana/solanamonitoring
+ROLLBACK_DIR=/home/solana/.local/state/solanamonitoring
+sudo -u solana install -d -m 0700 "$ROLLBACK_DIR"
+PRE_RETIREMENT_REVISION="$(sudo -u solana git -C "$REPOSITORY" rev-parse HEAD)"
+printf '%s\n' "$PRE_RETIREMENT_REVISION" | \
+  sudo -u solana tee "$ROLLBACK_DIR/PRE_RETIREMENT_REVISION" >/dev/null
+sudo -u solana cp --preserve=mode,timestamps \
+  "$REPOSITORY/monitor.sh" \
+  "$ROLLBACK_DIR/monitor.sh.pre-alpenglow-v3-retirement"
+sudo -u solana test -x "$ROLLBACK_DIR/monitor.sh.pre-alpenglow-v3-retirement"
+```
+
+After deploying the retirement revision, restart Telegraf and read back a fresh normal schema-v2 sample from the unchanged one-minute command before considering phase three complete:
+
+```bash
+sudo systemctl restart telegraf
+sudo -u telegraf /usr/bin/sudo -n -H -u solana -- \
+  /home/solana/solanamonitoring/monitor.sh \
+  --rpc-url http://127.0.0.1:8899 \
+  --rpc-timeout 20 \
+  --price-timeout 3 | grep -m1 '^nodemonitor,.*schema=2 '
+sudo journalctl -u telegraf --since '-2 minutes' --no-pager
+```
+
+Rollback phase 3 with the recorded executable, then restart and perform the same direct sample readback. Do not reset the repository or alter v3 state:
+
+```bash
+REPOSITORY=/home/solana/solanamonitoring
+ROLLBACK_DIR=/home/solana/.local/state/solanamonitoring
+PRE_RETIREMENT_REVISION="$(sudo -u solana sed -n '1p' "$ROLLBACK_DIR/PRE_RETIREMENT_REVISION")"
+sudo -u solana git -C "$REPOSITORY" cat-file -e "$PRE_RETIREMENT_REVISION^{commit}"
+sudo -u solana test -x "$ROLLBACK_DIR/monitor.sh.pre-alpenglow-v3-retirement"
+sudo -u solana git -C "$REPOSITORY" show "$PRE_RETIREMENT_REVISION:monitor.sh" | \
+  sudo -u solana cmp - "$ROLLBACK_DIR/monitor.sh.pre-alpenglow-v3-retirement"
+sudo -u solana cp --preserve=mode,timestamps \
+  "$ROLLBACK_DIR/monitor.sh.pre-alpenglow-v3-retirement" \
+  "$REPOSITORY/monitor.sh"
+sudo systemctl restart telegraf
+sudo -u telegraf /usr/bin/sudo -n -H -u solana -- \
+  /home/solana/solanamonitoring/monitor.sh \
+  --rpc-url http://127.0.0.1:8899 \
+  --rpc-timeout 20 \
+  --price-timeout 3 | grep -m1 '^nodemonitor,.*schema=2 '
+sudo journalctl -u telegraf --since '-2 minutes' --no-pager
+```
+
+Keep the v3 collector and v3 state unchanged unless v3 itself is the fault. Restore a Telegraf configuration backup only if the separately reviewed retirement changed the normally retained one-minute command.
 
 ## State and rollback invariants
 

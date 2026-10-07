@@ -476,6 +476,42 @@ run_capture "$tmp/learner-contradict.out" "$tmp/learner-contradict.err" --rpc-ur
 jq -e --arg vote "$vote" '.accounts[$vote].gcd=="3" and .accounts[$vote].samples==1 and .accounts[$vote].increment==null and .totals.included=="1" and .totals.unattributed_slots=="2"' "$learner_state" >/dev/null || fail 'contradiction must restart learner and preserve history'
 unset MOCK_ALPENGLOW_V3_FIXTURE
 
+# An unpromoted multi-gap learner survives process restart with its candidate GCD
+# and sample count intact. Re-reading the same finalized slot must not reset the
+# learner, regress counters, or attribute/count the span twice.
+warm_restart_state="$tmp/warm-restart-state.json"
+cat >"$warm_restart_state" <<JSON
+{"version":3,"genesis":"4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY","consensus":"alpenglow","pubkey":"$identity","vote_account":"$vote","config":{"reference_count":1,"rate_samples":20},"schedule":{"slots_per_epoch":432000,"leader_schedule_slot_offset":432000,"warmup":true,"first_normal_epoch":14,"first_normal_slot":524256},"epoch":"1052","reference_votes":["ReferenceVote1111111111111111111111111111111"],"accounts":{"$vote":{"node":"$identity","total":"100","slot":"449000030","gcd":"6","samples":7,"increment":null},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","total":"200","slot":"449000030","gcd":"12","samples":7,"increment":null}},"leader_schedule_epoch":"1052","leader_slots":{"$identity":[],"ReferenceNode1111111111111111111111111111111":[]},"totals":{"included":"5","expected":"7","missed":"2","unattributed_slots":"3"},"last_attributed_slot":"449000028"}
+JSON
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/warm-restart-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000032,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"110","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"212","previousCredits":"0"}]}}}
+JSON
+run_capture "$tmp/warm-restart-advance.out" "$tmp/warm-restart-advance.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$warm_restart_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'warm learner advance before restart must succeed'
+jq -e --arg vote "$vote" --arg ref 'ReferenceVote1111111111111111111111111111111' '
+  .accounts[$vote].gcd=="2" and .accounts[$vote].samples==8 and .accounts[$vote].increment==null and
+  .accounts[$ref].gcd=="12" and .accounts[$ref].samples==8 and .accounts[$ref].increment==null and
+  .totals=={included:"5",expected:"7",missed:"2",unattributed_slots:"5"} and
+  .last_attributed_slot=="449000028"
+' "$warm_restart_state" >/dev/null || fail 'warm learner must persist candidates and count the unpromoted span once'
+warm_restart_checkpoint="$(sha256sum "$warm_restart_state")"
+run_capture "$tmp/warm-restart-repeat.out" "$tmp/warm-restart-repeat.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$warm_restart_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'warm learner repeated-slot restart must succeed'
+[[ "$(sha256sum "$warm_restart_state")" == "$warm_restart_checkpoint" ]] || fail 'restart on the same slot must not reset learner state or duplicate attribution'
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000034,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"114","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"218","previousCredits":"0"}]}}}
+JSON
+run_capture "$tmp/warm-restart-resume.out" "$tmp/warm-restart-resume.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$warm_restart_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'warm learner must resume after restart'
+jq -e --arg vote "$vote" --arg ref 'ReferenceVote1111111111111111111111111111111' '
+  .accounts[$vote].gcd=="2" and .accounts[$vote].samples==9 and .accounts[$vote].increment==null and
+  .accounts[$ref].gcd=="6" and .accounts[$ref].samples==9 and .accounts[$ref].increment==null and
+  .totals=={included:"5",expected:"7",missed:"2",unattributed_slots:"7"} and
+  .last_attributed_slot=="449000028"
+' "$warm_restart_state" >/dev/null || fail 'warm learner restart must preserve candidate progress without counter regression'
+unset MOCK_ALPENGLOW_V3_FIXTURE
+
 # Invalid leader-cache keys normalize only that subsection; fetched own leadership
 # contaminates the gap while preserving counters and advancing aligned baselines.
 leader_state="$tmp/leader-state.json"

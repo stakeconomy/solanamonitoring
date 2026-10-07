@@ -63,6 +63,8 @@ telegraf ALL=(solana) NOPASSWD: /home/solana/solanamonitoring/scripts/alpenglow-
 
 Replace the identity and vote-account placeholders in both sudoers and Telegraf with fixed real public keys. Do not add wildcards or authorize an alternate RPC URL, state path, identity, vote account, reference count, or rate-sample threshold.
 
+Enable the v3 rule and two-second input only when the local RPC proves the exact Testnet genesis `4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY` and reports Alpenglow. Mainnet and Tower validators retain only the legacy `monitor.sh` rule and one-minute input.
+
 Validate and inspect the effective policy:
 
 ```bash
@@ -79,7 +81,7 @@ The example configuration keeps two independent inputs:
 - legacy `monitor.sh`: `interval = "1m"`, `timeout = "1m"`, schema v2;
 - standalone v3 collector: `interval = "2s"`, `timeout = "3s"`, fixed `--rpc-timeout 0.7 --reference-count 8 --rate-samples 20` and validator-home v3 state.
 
-Start from [`telegraf/solana-monitoring.conf.example`](telegraf/solana-monitoring.conf.example). Change the hostname, validator username, repository path, RPC URL, fixed identity/vote account, and real validator mount points. Keep the Stakeconomy output settings when using the community dashboard. Do not configure `data_type = "integer"`; the emitted lines contain both integer and floating-point fields.
+Start from [`telegraf/solana-monitoring.conf.example`](telegraf/solana-monitoring.conf.example). Replace the Testnet-neutral `validator-community-host` example with a unique stable hostname, then change the validator username, repository path, RPC URL, fixed identity/vote account, and real validator mount points. Keep the Stakeconomy output settings when using the community dashboard. Do not configure `data_type = "integer"`; the emitted lines contain both integer and floating-point fields.
 
 ## Migrating an existing validator
 
