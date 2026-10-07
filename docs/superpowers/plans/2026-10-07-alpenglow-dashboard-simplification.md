@@ -118,7 +118,7 @@ and nodemonitor_alpenglowObservedExpected{consensus="alpenglow",pubkey="$pubkey"
   ) as $observed_inclusion_done
 ```
 
-4. If the new view is already present, do nothing. If any old Alpenglow panel is present, remove IDs `168`, `169`, `170`, `171`, and `172` without shifting the rest of the dashboard again. If none is present, shift panels at `y >= 55` by 11 rows once. Then add:
+4. If the new view is already present, do nothing. If any old Alpenglow panel is present, remove IDs `168`, `169`, `170`, `171`, and `172`, then shift existing lower panels at `y >= 66` down by one row because the new section is one row taller than the old section. If none is present, shift panels at `y >= 55` by 12 rows once; the history panel at `y=59`, height `8` occupies rows through `66`. Then add:
    - ID `168`, `Alpenglow vote inclusion rate`, stat, `8×4` at `(0,55)`, percent, no-value `Collecting vote data`.
    - ID `169`, `Alpenglow vote counts`, stat, `16×4` at `(8,55)`, three targets, no-value `Collecting vote data`.
    - ID `171`, history, `24×8` at `(0,59)`.

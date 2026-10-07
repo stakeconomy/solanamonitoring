@@ -69,11 +69,15 @@ Use native Grafana stat and time-series panels only.
 - Reuse panel IDs `168`, `169`, and `171` for the three new panels.
 - Remove technical panels `170` and `172` from the enhanced dashboard.
 - Gate inclusion-rate queries with readiness and a positive denominator so warm-up produces no value rather than `0%`.
+- Clamp the displayed current and historical percentage to `100%`. The reference-derived denominator can occasionally be lower than the monitored validator's raw included count; the raw count panel remains available to expose that estimator overshoot.
+- Treat old-panel migration and already-migrated detection separately: remove IDs `168`–`172`, add only `168`, `169`, and `171`, and make repeated enhancement byte-idempotent.
+- A fresh dashboard without either Alpenglow panel set must shift lower panels by 12 rows; the history panel at `y=59`, height `8` occupies rows through `66`.
+- `grafana/solana-community-validator-dashboard.json` is a symlink to the canonical root JSON, so regeneration updates one dashboard artifact while preserving both repository paths.
 - Preserve bounded history resolution and existing dashboard layout/idempotence checks.
 
 ## Verification
 
-- Render both canonical dashboard JSON files from the jq source.
+- Regenerate the canonical dashboard JSON through the Grafana symlink and verify the root target and symlink still resolve to the same content.
 - Assert the three plain-language panels and exact scoped PromQL queries.
 - Assert panel IDs `170` and `172` are absent.
 - Assert old technical titles and legends are absent.
