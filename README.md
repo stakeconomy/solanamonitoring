@@ -12,7 +12,9 @@ It is not a guide for installing a private Telegraf, time-series database, and G
 
 ## What is monitored
 
-Validator metrics are scoped by exact genesis, canonical cluster, identity, vote account, and detected consensus. They include finalized-slot vote/root freshness, status, active stake, scheduled-slot production, commission, software version, epoch progress and ETA, cluster TPS, SOL price, identity/vote balances, cluster size, and delinquent stake. Tower vote-credit fields are emitted only when `getAgGenesisCert` reports Tower consensus. Alpenglow emits only a validated post-migration `epochCredits` tuple delta as `alpenglowRewardAccountingLamports`; the dashboard presents it as SOL reward accounting, never as performance.
+Validator metrics are scoped by exact genesis, canonical cluster, identity, vote account, and detected consensus. They include finalized-slot vote/root freshness, status, active stake, scheduled-slot production, commission, software version, epoch progress and ETA, cluster TPS, SOL price, identity/vote balances, cluster size, and delinquent stake. Tower vote-credit fields are emitted only when `getAgGenesisCert` reports Tower consensus. Alpenglow emits a validated post-migration `epochCredits` tuple delta as `alpenglowRewardAccountingLamports`; the dashboard presents it as SOL reward accounting, never as performance.
+
+On Alpenglow, the collector also emits a bounded **observed/inferred** vote-inclusion signal from finalized `getMultipleAccounts` reward-accounting snapshots: `alpenglowObservedIncluded`, `alpenglowObservedExpected`, `alpenglowObservedMissed`, `alpenglowObservedUnattributed`, `alpenglowObservedReady`, `alpenglowObservedReferences`, and `alpenglowObservedSlot`. It learns per-account increments from clean reward deltas and compares the validator with bounded top-stake reference vote accounts. This is not certificate-direct inclusion or direct Votor telemetry; portable RPC-only direct Votor collection remains out of scope.
 
 Host metrics include total CPU, IOWait, normalized load, memory, swap, relevant filesystem utilization, network traffic/errors, UDP errors, process states, TCP states, allocated file handles, and context switches.
 
@@ -96,6 +98,14 @@ The collector retains the `nodemonitor` measurement but writes schema-v2 tagged 
 The collector prefers the local validator RPC. It batches compatible JSON-RPC calls to reduce subprocess and RPC overhead.
 
 `epochEnds` normally uses recent performance samples. If the local validator has transaction history disabled and returns no samples, the collector checks the RPC configured for the Solana CLI user and verifies its genesis hash before using it. An explicit `--performance-rpc-url` can override that source. Testnet can finally fall back to its 200 ms target slot duration; `--slot-ms` overrides the duration fallback.
+
+## Observed Alpenglow vote inclusion
+
+`monitor.sh` uses only Bash, `curl`, `jq`, and JSON-RPC. For `consensus=alpenglow`, it takes one finalized `getMultipleAccounts` snapshot of the selected vote account plus up to `MONITOR_ALPENGLOW_REFERENCE_COUNT` (default `8`, maximum `32`) highest-stake other vote accounts. It obtains their node identities from `getVoteAccounts` and excludes a reward-delta gap for any account that crosses `epoch_start + 8` or contains that account's leader slot from `getLeaderSchedule`.
+
+For clean gaps, it learns each account's per-inclusion reward increment as the GCD of positive reward-accounting deltas. A one-slot clean delta proves the increment immediately; longer intervals require `MONITOR_ALPENGLOW_RATE_SAMPLES` clean positive samples (default `20`, maximum `100`) before the GCD is used. That deliberately delays initial data rather than mistaking a multi-inclusion delta for one inclusion. `alpenglowObservedExpected` is the maximum inferred inclusion count among clean, known reference gaps; `alpenglowObservedIncluded` is the selected account's inferred count; `alpenglowObservedMissed` is emitted only when both values are known. A missing baseline, invalid account encoding, leader-slot gap, epoch-delay gap, failed schedule request, or non-divisible delta is counted as `alpenglowObservedUnattributed`; it is never fabricated as zero inclusion.
+
+The state file defaults to `$SOLANA_CONFIG_DIR/alpenglow-observed-vote-inclusion.json` and can be overridden with `MONITOR_ALPENGLOW_OBSERVED_STATE`. It must be writable by the validator user. State is written to a same-directory temporary file and renamed atomically; a stored genesis hash or vote account mismatch resets the learned baseline, so data is never compared across cluster or vote-account changes. This signal is observed/inferred reward accounting only, not certificate-direct inclusion and not direct Votor telemetry. Portable RPC-only direct Votor collection remains out of scope.
 
 Whole-epoch block-production statistics require enough retained ledger data for the current epoch. Aggressive `--limit-ledger-size` pruning can make leader-slot and skip-rate history incomplete.
 

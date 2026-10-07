@@ -16,6 +16,10 @@ price_timeout="${MONITOR_PRICE_TIMEOUT:-3}"
 slot_milliseconds="${MONITOR_SLOT_MILLISECONDS:-}"
 performance_rpc_url="${SOLANA_PERFORMANCE_RPC_URL:-}"
 price_url="${SOLANA_PRICE_URL:-https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd}"
+alpenglow_observed_state="${MONITOR_ALPENGLOW_OBSERVED_STATE:-$config_dir/alpenglow-observed-vote-inclusion.json}"
+alpenglow_reference_count="${MONITOR_ALPENGLOW_REFERENCE_COUNT:-8}"
+alpenglow_rate_samples="${MONITOR_ALPENGLOW_RATE_SAMPLES:-20}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 now="$(date +%s%N)"
 
 usage() {
@@ -37,7 +41,9 @@ Options:
 The same values can be provided with SOLANA_IDENTITY_PUBKEY,
 SOLANA_VOTE_ACCOUNT, SOLANA_RPC_URL, SOLANA_CLI, MONITOR_RPC_TIMEOUT,
 MONITOR_PRICE_TIMEOUT, SOLANA_PERFORMANCE_RPC_URL, and
-MONITOR_SLOT_MILLISECONDS.
+MONITOR_SLOT_MILLISECONDS. MONITOR_ALPENGLOW_OBSERVED_STATE selects the
+validator-user-writable state file for inferred/observed Alpenglow vote
+inclusion; MONITOR_ALPENGLOW_REFERENCE_COUNT caps top-stake references.
 EOF
 }
 
@@ -108,6 +114,14 @@ if [[ ! "$rpc_timeout" =~ ^[0-9]+([.][0-9]+)?$ || ! "$price_timeout" =~ ^[0-9]+(
 fi
 if [[ -n "$slot_milliseconds" && ! "$slot_milliseconds" =~ ^[1-9][0-9]*$ ]]; then
   printf 'monitor: slot duration must be a positive integer in milliseconds\n' >&2
+  exit 64
+fi
+if [[ ! "$alpenglow_reference_count" =~ ^[1-9][0-9]*$ || "$alpenglow_reference_count" -gt 32 ]]; then
+  printf 'monitor: Alpenglow reference count must be an integer from 1 through 32\n' >&2
+  exit 64
+fi
+if [[ ! "$alpenglow_rate_samples" =~ ^[1-9][0-9]*$ || "$alpenglow_rate_samples" -gt 100 ]]; then
+  printf 'monitor: Alpenglow rate samples must be an integer from 1 through 100\n' >&2
   exit 64
 fi
 
@@ -358,6 +372,7 @@ batch_payload="$(jq -cn --arg identity "$identity_pubkey" --arg vote "$vote_acco
   {jsonrpc:"2.0",id:"blockProduction",method:"getBlockProduction",params:[{commitment:"confirmed"}]},
   {jsonrpc:"2.0",id:"clusterNodes",method:"getClusterNodes"},
   {jsonrpc:"2.0",id:"epochInfo",method:"getEpochInfo",params:[{commitment:"confirmed"}]},
+  {jsonrpc:"2.0",id:"finalizedEpochInfo",method:"getEpochInfo",params:[{commitment:"finalized"}]},
   {jsonrpc:"2.0",id:"performance",method:"getRecentPerformanceSamples",params:[5]},
   {jsonrpc:"2.0",id:"identityBalance",method:"getBalance",params:[$identity,{commitment:"confirmed"}]},
   {jsonrpc:"2.0",id:"voteBalance",method:"getBalance",params:[$vote,{commitment:"confirmed"}]},
@@ -380,6 +395,7 @@ batch_summary="$(jq -c --arg identity "$identity_pubkey" '
   (response("blockProduction").result.value // {}) as $bp |
   (response("clusterNodes").result // []) as $nodes |
   (response("epochInfo").result // {}) as $epoch |
+  (response("finalizedEpochInfo").result // {}) as $finalizedEpoch |
   (response("performance").result // []) as $performance |
   (response("agGenesisCert")) as $agGenesisCert |
   ($bp.byIdentity[$identity] // [0, 0]) as $validatorProduction |
@@ -402,6 +418,9 @@ batch_summary="$(jq -c --arg identity "$identity_pubkey" '
     voteBalance: (response("voteBalance").result.value // 0),
     genesisHash: (response("genesisHash").result // ""),
     finalizedSlot: (response("finalizedSlot").result // null),
+    finalizedEpoch: ($finalizedEpoch.epoch // null),
+    finalizedSlotIndex: ($finalizedEpoch.slotIndex // null),
+    finalizedSlotsInEpoch: ($finalizedEpoch.slotsInEpoch // null),
     consensus: (
       if $agGenesisCert.error != null then "unknown"
       elif $agGenesisCert.result == null then "tower"
@@ -460,8 +479,30 @@ identity_balance_lamports="$(jq -r '.identityBalance' <<<"$batch_summary")"
 vote_balance_lamports="$(jq -r '.voteBalance' <<<"$batch_summary")"
 genesis_hash="$(jq -r '.genesisHash' <<<"$batch_summary")"
 finalized_slot="$(jq -r '.finalizedSlot // empty' <<<"$batch_summary")"
+finalized_epoch="$(jq -r '.finalizedEpoch // empty' <<<"$batch_summary")"
+finalized_slot_index="$(jq -r '.finalizedSlotIndex // empty' <<<"$batch_summary")"
+finalized_slots_in_epoch="$(jq -r '.finalizedSlotsInEpoch // empty' <<<"$batch_summary")"
 IFS=$'\t' read -r cluster _ <<<"$(cluster_metadata_for_genesis "$genesis_hash")"
 consensus="$(jq -r '.consensus' <<<"$batch_summary")"
+
+# This portable signal is observed/inferred from finalized vote-account reward
+# deltas. It is deliberately not direct certificate or Votor telemetry.
+alpenglow_observed_fields=''
+if [[ "$consensus" == 'alpenglow' && "$finalized_slot" =~ ^[0-9]+$ &&
+      "$finalized_epoch" =~ ^[0-9]+$ && "$finalized_slots_in_epoch" =~ ^[1-9][0-9]*$ &&
+      "$finalized_slot_index" =~ ^[0-9]+$ ]]; then
+  alpenglow_reference_accounts="$(jq -cer --arg own "$vote_account" --argjson limit "$alpenglow_reference_count" '
+    [.result.current[]? |
+      select(.votePubkey != $own) |
+      {vote: .votePubkey, node: .nodePubkey, stake: (.activatedStake // 0)} |
+      select((.vote | type) == "string" and (.node | type) == "string")]
+    | sort_by(-.stake) | .[:$limit] | map({vote: .vote, node: .node})
+  ' <<<"$vote_response" 2>/dev/null || printf '[]')"
+  epoch_start_slot=$((finalized_slot - finalized_slot_index))
+  alpenglow_observed_fields="$(bash "$script_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
+    "$rpc_url" "$alpenglow_observed_state" "$genesis_hash" "$vote_account" "$identity_pubkey" \
+    "$alpenglow_reference_accounts" "$curl_bin" "$rpc_timeout" "$epoch_start_slot" "$alpenglow_rate_samples" 2>/dev/null || true)"
+fi
 
 # Some validator builds expose getRecentPerformanceSamples but don't populate
 # their local PerfSamples column. Prefer the Solana user's configured CLI RPC
@@ -563,6 +604,9 @@ if [[ "$consensus" == 'tower' ]]; then
   fields+=",legacyVoteCreditsTotal=${credits}i,legacyVoteCreditsEpoch=${current_credits}i,legacyVoteCreditEfficiencyPct=${pct_vote}"
 elif [[ "$consensus" == 'alpenglow' && "$alpenglow_reward_lamports" =~ ^[0-9]+$ ]]; then
   fields+=",alpenglowRewardAccountingLamports=${alpenglow_reward_lamports}i"
+fi
+if [[ -n "$alpenglow_observed_fields" ]]; then
+  fields+=",${alpenglow_observed_fields}"
 fi
 fields+=",productionDataOk=${batch_ok}i,activatedStake=${activated_stake},version=${version_number}i,commission=${commission}i"
 if ((batch_ok)); then

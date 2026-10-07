@@ -51,6 +51,24 @@ For `consensus=alpenglow` or `unknown`, omit all six Tower credit/efficiency fie
 
 For `consensus=alpenglow` only, emit `alpenglowRewardAccountingLamports` when the latest `epochCredits` tuple is a valid non-negative integer tuple `[epoch, total, previous]` with `total >= previous`. Its value is `total - previous` in lamports. Reject migration markers and malformed tuples rather than fabricating zeroes. Grafana may divide by `1e9` to display SOL, and must label it reward accounting rather than performance.
 
+### Alpenglow observed/inferred vote inclusion
+
+For `consensus=alpenglow`, the collector may emit these integer fields without adding tags or labels:
+
+- `alpenglowObservedReady`
+- `alpenglowObservedIncluded`
+- `alpenglowObservedExpected`
+- `alpenglowObservedMissed`
+- `alpenglowObservedUnattributed`
+- `alpenglowObservedReferences`
+- `alpenglowObservedSlot`
+
+The collector derives the epoch boundary from finalized `getEpochInfo`, then takes a finalized `getMultipleAccounts` snapshot for the selected vote account and a bounded set of top-stake **current** reference vote accounts selected from `getVoteAccounts`. It learns each account's reward increment per inclusion with the GCD of positive clean reward deltas. A one-slot clean delta proves the increment immediately; otherwise the collector requires `MONITOR_ALPENGLOW_RATE_SAMPLES` clean positive deltas (default `20`) before using the GCD. This prevents one multi-inclusion interval from being falsely treated as one inclusion. A gap is not clean if it crosses `epoch_start + 8`, if the account is scheduled as leader during the gap according to finalized `getLeaderSchedule`, if account data is invalid, or if schedule data is unavailable. `Expected` is the maximum inferred inclusion count among clean, known references. `Missed` is emitted only if the selected account's inferred inclusion count and `Expected` are both known.
+
+`Unattributed` counts accounts whose current interval cannot be attributed under those rules. Unknown is omitted from `Included`, `Expected`, and `Missed`; it is never rewritten as zero. `Ready=1` only when the selected account and at least one reference have comparable inferred counts. `References` is bounded by `MONITOR_ALPENGLOW_REFERENCE_COUNT` (default `8`, maximum `32`), while `Slot` is the finalized account-snapshot context slot.
+
+This is an **observed/inferred reward-accounting signal**, not certificate-direct inclusion and not direct Votor telemetry. Portable RPC-only direct Votor collection is explicitly out of scope. The implementation persists a validator-user-writable state file, atomically replacing it with a same-directory temporary-file rename. It resets the baseline when the recorded genesis hash or vote account differs from the active record.
+
 ### Collector health
 
 Add:

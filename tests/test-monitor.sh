@@ -5,6 +5,8 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mock_curl="$repo_dir/tests/fixtures/mock-monitor-curl"
 identity="8SQEcP4FaYQySktNQeyxF3w8pvArx3oMEh7fPrzkN9pu"
+export MONITOR_ALPENGLOW_OBSERVED_STATE="$(mktemp -d)/default-vote-inclusion.json"
+export MONITOR_ALPENGLOW_RATE_SAMPLES=2
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -47,6 +49,90 @@ assert_contains "$output" 'alpenglowRewardAccountingLamports=282326i'
 [[ "$output" != *'pctVote='* ]] || fail 'Alpenglow must not emit Tower vote-credit efficiency'
 [[ "$output" != *'pctNewerVersions='* ]] || fail 'collector must not emit a hard-coded newer-version percentage'
 assert_contains "$output" 'tps=698637083708i'
+
+observed_state="$(mktemp -d)/vote-inclusion.json"
+observed_first_output="$(
+  MOCK_OBSERVED_STAGE=1 CURL_BIN="$mock_curl" \
+  MONITOR_ALPENGLOW_OBSERVED_STATE="$observed_state" \
+  "$repo_dir/monitor.sh" --identity "$identity" --rpc-url http://mock-rpc.invalid
+)"
+assert_contains "$observed_first_output" 'alpenglowObservedReady=0i'
+assert_contains "$observed_first_output" 'alpenglowObservedUnattributed=2i'
+assert_contains "$observed_first_output" 'alpenglowObservedReferences=1i'
+assert_contains "$observed_first_output" 'alpenglowObservedSlot=100i'
+[[ "$observed_first_output" != *'alpenglowObservedIncluded='* ]] || \
+  fail 'first observed snapshot must not fabricate an inclusion count'
+
+observed_second_output="$(
+  MOCK_OBSERVED_STAGE=2 CURL_BIN="$mock_curl" \
+  MONITOR_ALPENGLOW_OBSERVED_STATE="$observed_state" \
+  "$repo_dir/monitor.sh" --identity "$identity" --rpc-url http://mock-rpc.invalid
+)"
+assert_contains "$observed_second_output" 'alpenglowObservedReady=0i'
+assert_contains "$observed_second_output" 'alpenglowObservedUnattributed=2i'
+[[ "$observed_second_output" != *'alpenglowObservedIncluded='* ]] || \
+  fail 'a first multi-slot positive delta must not be mistaken for one inclusion'
+
+observed_third_output="$(
+  MOCK_OBSERVED_STAGE=3 CURL_BIN="$mock_curl" \
+  MONITOR_ALPENGLOW_OBSERVED_STATE="$observed_state" \
+  "$repo_dir/monitor.sh" --identity "$identity" --rpc-url http://mock-rpc.invalid
+)"
+assert_contains "$observed_third_output" 'alpenglowObservedReady=1i'
+assert_contains "$observed_third_output" 'alpenglowObservedIncluded=2i'
+assert_contains "$observed_third_output" 'alpenglowObservedExpected=3i'
+assert_contains "$observed_third_output" 'alpenglowObservedMissed=1i'
+assert_contains "$observed_third_output" 'alpenglowObservedUnattributed=0i'
+[[ -f "$observed_state" ]] || fail 'observed inclusion state must be atomically persisted'
+
+vote_change_output="$(
+  MOCK_OBSERVED_STAGE=3 CURL_BIN="$mock_curl" \
+  MONITOR_ALPENGLOW_OBSERVED_STATE="$observed_state" \
+  "$repo_dir/monitor.sh" --identity "$identity" \
+    --vote-account CurrentVote111111111111111111111111111111111 \
+    --rpc-url http://mock-rpc.invalid
+)"
+assert_contains "$vote_change_output" 'alpenglowObservedReady=0i'
+assert_contains "$vote_change_output" 'alpenglowObservedUnattributed=2i'
+[[ "$vote_change_output" != *'alpenglowObservedIncluded='* ]] || \
+  fail 'vote-account changes must reset the observed inclusion baseline'
+
+leader_state="$(mktemp -d)/vote-inclusion.json"
+references='[{"vote":"CurrentVote111111111111111111111111111111111","node":"CurrentValidator11111111111111111111111111111"}]'
+for stage in 1 2; do
+  MOCK_OBSERVED_STAGE="$stage" "$repo_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
+    http://mock-rpc.invalid "$leader_state" 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
+    2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3 "$identity" "$references" \
+    "$mock_curl" 20 0 >/dev/null
+done
+leader_gap_output="$(
+  MOCK_OBSERVED_STAGE=3 "$repo_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
+    http://mock-rpc.invalid "$leader_state" 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
+    2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3 "$identity" "$references" \
+    "$mock_curl" 20 100
+)"
+assert_contains "$leader_gap_output" 'alpenglowObservedReady=0i'
+assert_contains "$leader_gap_output" 'alpenglowObservedUnattributed=2i'
+[[ "$leader_gap_output" != *'alpenglowObservedIncluded='* ]] || \
+  fail 'leader-slot gaps must remain unattributed, not counted as inclusions'
+
+delay_state="$(mktemp -d)/vote-inclusion.json"
+for stage in 1 2; do
+  MOCK_NO_OBSERVED_LEADERS=1 MOCK_OBSERVED_STAGE="$stage" "$repo_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
+    http://mock-rpc.invalid "$delay_state" 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
+    2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3 "$identity" "$references" \
+    "$mock_curl" 20 0 >/dev/null
+done
+epoch_delay_output="$(
+  MOCK_NO_OBSERVED_LEADERS=1 MOCK_OBSERVED_STAGE=3 "$repo_dir/scripts/alpenglow-observed-vote-inclusion.sh" \
+    http://mock-rpc.invalid "$delay_state" 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY \
+    2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3 "$identity" "$references" \
+    "$mock_curl" 20 104
+)"
+assert_contains "$epoch_delay_output" 'alpenglowObservedReady=0i'
+assert_contains "$epoch_delay_output" 'alpenglowObservedUnattributed=2i'
+[[ "$epoch_delay_output" != *'alpenglowObservedMissed='* ]] || \
+  fail 'epoch-delay gaps must remain unattributed, not counted as misses'
 
 migration_marker_output="$(
   MOCK_ALPENGLOW_EPOCH_CREDIT_MARKER=1 CURL_BIN="$mock_curl" \
