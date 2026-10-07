@@ -254,6 +254,11 @@ cold_snapshot="$(jq -cer --arg genesis "$genesis_expected" --arg owner "$vote_pr
   def exact_keys($expected): (keys | sort) == ($expected | sort);
   def byte: type == "number" and floor == . and . >= 0 and . <= 255;
   def safe_integer: type == "number" and floor == . and . >= 0 and . <= 9007199254740991;
+  def valid_context:
+    type == "object" and has("slot") and
+    ((keys - ["apiVersion","slot"]) | length) == 0 and
+    ((has("apiVersion") | not) or .apiVersion == null or
+     ((.apiVersion|type) == "string" and (.apiVersion|length) >= 1 and (.apiVersion|length) <= 64));
   def response($id):
     map(select(.id == $id)) |
     if length == 1 and .[0].jsonrpc == "2.0" and (.[0] | exact_keys(["jsonrpc","id","result"]))
@@ -276,7 +281,7 @@ cold_snapshot="$(jq -cer --arg genesis "$genesis_expected" --arg owner "$vote_pr
      (all($c.result.signature.signature[]; byte) | not) or
      $s.result != {slotsPerEpoch:432000,leaderScheduleSlotOffset:432000,warmup:true,firstNormalEpoch:14,firstNormalSlot:524256} or
      ($a.result|type) != "object" or ($a.result | exact_keys(["context","value"]) | not) or
-     ($a.result.context|type) != "object" or ($a.result.context | exact_keys(["slot"]) | not)
+     ($a.result.context | valid_context | not)
   then error("network isolation failed") else . end |
   ($a.result.context.slot) as $slot | ($a.result.value) as $values |
   if ($slot | safe_integer | not) or

@@ -52,7 +52,11 @@ if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$payload"; then
     malformed-cert) cert='{"block":{"slot":1,"blockId":[]},"signature":{"bitmap":[],"signature":[]}}' ;;
     zero-cert-slot) cert='{"block":{"slot":0,"blockId":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},"signature":{"bitmap":[1],"signature":['"$(printf '1,%.0s' {1..191})"'1]}}' ;;
     malformed-schedule-result) schedule='{"slotsPerEpoch":432000,"leaderScheduleSlotOffset":432000,"warmup":true,"firstNormalEpoch":14}' ;;
-    malformed-accounts-result) accounts_context='{"slot":449000000,"apiVersion":"4.4.0"}' ;;
+    context-api-version) accounts_context='{"slot":449000000,"apiVersion":"4.4.0"}' ;;
+    context-api-version-null) accounts_context='{"slot":449000000,"apiVersion":null}' ;;
+    unknown-context-key) accounts_context='{"slot":449000000,"futureField":true}' ;;
+    malformed-api-version) accounts_context='{"slot":449000000,"apiVersion":44}' ;;
+    oversized-api-version) accounts_context='{"slot":449000000,"apiVersion":"12345678901234567890123456789012345678901234567890123456789012345"}' ;;
     wrong-batch-id) duplicate_id='v3-unknown' ;;
     previous-max) credits='9223372036854775807'; previous_credits='9223372036854775807' ;;
     previous-overflow) credits='9223372036854775807'; previous_credits='9223372036854775808' ;;

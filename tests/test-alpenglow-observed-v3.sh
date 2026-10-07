@@ -93,7 +93,21 @@ jq -e --arg identity "$identity" --arg vote "$vote" '
   (has("pending") | not) and (has("included_total") | not)
 ' "$state" >/dev/null || fail 'cold state must match the exact v3 schema'
 
-for scenario in mainnet tower wrong-node wrong-owner wrong-program wrong-type fixed-schedule malformed-batch-ids wrong-batch-id bad-jsonrpc malformed-genesis-result malformed-cert zero-cert-slot malformed-schedule-result malformed-accounts-result; do
+for scenario in context-api-version context-api-version-null; do
+  export MOCK_ALPENGLOW_V3_SCENARIO="$scenario"
+  context_state="$tmp/$scenario.json"
+  run_capture "$tmp/$scenario.out" "$tmp/$scenario.err" \
+    --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" \
+    --state "$context_state"
+  [[ "$CAPTURE_STATUS" -eq 0 ]] || fail "$scenario must accept standards-compliant context.apiVersion"
+  [[ ! -s "$tmp/$scenario.err" ]] || fail "$scenario must not warn"
+  [[ "$(<"$tmp/$scenario.out")" == "$expected_line" ]] || fail "$scenario must emit the exact cold measurement"
+  jq -e --arg vote "$vote" '.accounts[$vote].slot == "449000000" and .totals == {included:"0",expected:"0",missed:"0",unattributed_slots:"0"}' "$context_state" >/dev/null ||
+    fail "$scenario must create valid cold state"
+done
+unset MOCK_ALPENGLOW_V3_SCENARIO
+
+for scenario in mainnet tower wrong-node wrong-owner wrong-program wrong-type fixed-schedule malformed-batch-ids wrong-batch-id bad-jsonrpc malformed-genesis-result malformed-cert zero-cert-slot malformed-schedule-result unknown-context-key malformed-api-version oversized-api-version; do
   export MOCK_ALPENGLOW_V3_SCENARIO="$scenario"
   isolated_state="$tmp/isolation-$scenario.json"
   run_capture "$tmp/isolation-$scenario.out" "$tmp/isolation-$scenario.err" \
