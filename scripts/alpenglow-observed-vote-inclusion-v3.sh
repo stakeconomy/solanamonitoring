@@ -34,6 +34,7 @@ state_file="${MONITOR_ALPENGLOW_OBSERVED_STATE:-${SOLANA_CONFIG_DIR:-$HOME/.conf
 rpc_timeout="${MONITOR_ALPENGLOW_RPC_TIMEOUT:-0.7}"
 reference_count="${MONITOR_ALPENGLOW_REFERENCE_COUNT:-8}"
 rate_samples="${MONITOR_ALPENGLOW_RATE_SAMPLES:-20}"
+cohort_seed="${MONITOR_ALPENGLOW_COHORT_SEED:-$RANDOM-$RANDOM-$RANDOM}"
 curl_bin="${CURL_BIN:-curl}"
 declare -A seen_args=()
 while (($#)); do
@@ -72,6 +73,8 @@ has_control "$state_file" && fail_usage '--state must not contain control charac
 [[ ! "$rpc_timeout" =~ ^0*([.]0*)?$ ]] || fail_usage '--rpc-timeout must be positive'
 if [[ ! "$reference_count" =~ ^[1-9][0-9]*$ ]] || ((${#reference_count} > 2)) || ((reference_count > 32)); then fail_usage '--reference-count must be between 1 and 32'; fi
 if [[ ! "$rate_samples" =~ ^[1-9][0-9]*$ ]] || ((${#rate_samples} > 3)) || ((rate_samples > 100)); then fail_usage '--rate-samples must be between 1 and 100'; fi
+[[ -n "$cohort_seed" && ${#cohort_seed} -le 128 ]] || fail_usage 'MONITOR_ALPENGLOW_COHORT_SEED must be 1..128 characters'
+has_control "$cohort_seed" && fail_usage 'MONITOR_ALPENGLOW_COHORT_SEED must not contain control characters'
 for command_name in bash "$curl_bin" jq flock mktemp mv chmod date sed; do
   command -v "$command_name" >/dev/null 2>&1 || { printf 'error: required command unavailable: %s\n' "$command_name" >&2; exit 69; }
 done
@@ -80,7 +83,6 @@ genesis_expected='4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY'
 vote_program='Vote111111111111111111111111111111111111111'
 max_u63='9223372036854775807'
 max_safe_json='9007199254740991'
-marker_u64='18446744073709551615'
 
 is_u63_decimal() {
   [[ "$1" =~ ^(0|[1-9][0-9]*)$ ]] || return 1
@@ -153,7 +155,7 @@ validate_core_state() {
     (.config.reference_count|type)=="number" and (.config.reference_count|floor)==.config.reference_count and .config.reference_count>=1 and .config.reference_count<=32 and
     (.config.rate_samples|type)=="number" and (.config.rate_samples|floor)==.config.rate_samples and .config.rate_samples>=1 and .config.rate_samples<=100 and
     .schedule=={slots_per_epoch:432000,leader_schedule_slot_offset:432000,warmup:true,first_normal_epoch:14,first_normal_slot:524256} and (.epoch|dec) and
-    (.reference_votes|type)=="array" and all(.reference_votes[];pubkey) and (.reference_votes|unique|length)==(.reference_votes|length) and (.reference_votes|index($root.vote_account)|not) and
+    (.reference_votes|type)=="array" and (.reference_votes|length)<=$root.config.reference_count and all(.reference_votes[];pubkey) and (.reference_votes|unique|length)==(.reference_votes|length) and (.reference_votes|index($root.vote_account)|not) and
     (.accounts|type)=="object" and ((.accounts|keys|sort)==([.vote_account]+.reference_votes|sort)) and .accounts[.vote_account].node==.pubkey and
     all(.accounts[];
       exact_keys(["node","total","slot","gcd","samples","increment"]) and
@@ -184,19 +186,26 @@ first_slot_of_epoch() {
   if ((e<=14)); then printf '%s' "$((((1<<e)-1)*32))"; else printf '%s' "$(((e-14)*432000+524256))"; fi
 }
 
-validate_raw_numeric_epochs() {
-  local rest="$1" token match
+normalize_raw_numeric_epochs() {
+  local rest="$1" output='' token match prefix match_prefix
   while [[ "$rest" =~ \"epoch\"[[:space:]]*:[[:space:]]*([0-9]+) ]]; do
     token="${BASH_REMATCH[1]}"; match="${BASH_REMATCH[0]}"
-    if ! dec_le "$token" "$max_safe_json" && [[ "$token" != "$marker_u64" ]]; then return 1; fi
+    prefix="${rest%%"$match"*}"
+    match_prefix="${match%"$token"}"
+    output+="$prefix$match_prefix"
+    if dec_le "$token" "$max_safe_json"; then
+      output+="\"$token\""
+    else
+      output+="\"__unsafe_numeric__:$token\""
+    fi
     rest="${rest#*"$match"}"
   done
+  printf '%s%s' "$output" "$rest"
 }
 
 parse_batch() {
   local raw="$1" votes="$2" normalized
-  validate_raw_numeric_epochs "$raw" || return 1
-  normalized="$(sed -E 's/("epoch"[[:space:]]*:[[:space:]]*)([0-9]+)/\1"\2"/g' <<<"$raw")" || return 1
+  normalized="$(normalize_raw_numeric_epochs "$raw")" || return 1
   jq -cer --arg genesis "$genesis_expected" --arg owner "$vote_program" --arg identity "$identity" --argjson votes "$votes" '
     def exact_keys($expected):(keys|sort)==($expected|sort);
     def byte:type=="number" and floor==. and .>=0 and .<=255;
@@ -207,10 +216,14 @@ parse_batch() {
     def valid_context:type=="object" and has("slot") and ((keys-["apiVersion","slot"])|length)==0 and ((has("apiVersion")|not) or .apiVersion==null or ((.apiVersion|type)=="string" and (.apiVersion|length)>=1 and (.apiVersion|length)<=64));
     def response($id):map(select(.id==$id))|if length==1 and .[0].jsonrpc=="2.0" and (.[0]|exact_keys(["jsonrpc","id","result"])) then .[0] else error("envelope") end;
     def history_entry:
-      if type=="object" and exact_keys(["epoch","credits","previousCredits"]) and (.epoch|dec) and (.credits|dec) and (.previousCredits|dec) then
-        if .epoch=="18446744073709551615" and .credits=="18446744073709551615" and .previousCredits=="18446744073709551615" then {marker:true}
-        elif .credits=="18446744073709551615" or .previousCredits=="18446744073709551615" then error("marker")
-        elif dec_le(.previousCredits;.credits) then {marker:false,epoch:.epoch,credits:.credits,previous:.previousCredits} else error("credits") end
+      if type=="object" and exact_keys(["epoch","credits","previousCredits"]) and (.credits|dec) and (.previousCredits|dec) then
+        if ((.epoch|type)=="string" and (.epoch|test("^__unsafe_numeric__:[0-9]+$"))) then
+          if .credits=="18446744073709551615" and .previousCredits=="18446744073709551615" then {marker:true} else error("unsafe numeric epoch") end
+        elif (.epoch|dec) then
+          if .epoch=="18446744073709551615" and .credits=="18446744073709551615" and .previousCredits=="18446744073709551615" then {marker:true}
+          elif .credits=="18446744073709551615" or .previousCredits=="18446744073709551615" then error("marker")
+          elif dec_le(.previousCredits;.credits) then {marker:false,epoch:.epoch,credits:.credits,previous:.previousCredits} else error("credits") end
+        else error("epoch") end
       elif type=="array" and length==3 and all(.[];safe_integer) then {marker:false,epoch:(.[0]|tostring),credits:(.[1]|tostring),previous:(.[2]|tostring)}
       else error("history entry") end;
     def parsed_history:
@@ -240,12 +253,19 @@ parse_batch() {
 
 select_cohort() {
   local response="$1" retained="$2"
-  jq -ce --arg own "$vote_account" --argjson limit "$reference_count" --argjson retained "$retained" '
+  jq -ce --arg own "$vote_account" --arg seed "$cohort_seed" --argjson limit "$reference_count" --argjson retained "$retained" '
     def exact_keys($expected):(keys|sort)==($expected|sort);
     def pubkey:type=="string" and length>=32 and length<=44 and test("^[1-9A-HJ-NP-Za-km-z]+$");
+    def score($value): reduce ($value|explode[]) as $c (0; ((. * 131 + $c) % 2147483647));
     if type!="object" or .jsonrpc!="2.0" or .id!="v3-vote-accounts" or (exact_keys(["jsonrpc","id","result"])|not) or (.result|type)!="object" or (.result|exact_keys(["current","delinquent"])|not) or
        (.result.current|type)!="array" or (.result.delinquent|type)!="array" or (all(.result.current[];(.votePubkey|pubkey) and (.nodePubkey|pubkey))|not) or (all(.result.delinquent[];(.votePubkey|pubkey) and (.nodePubkey|pubkey))|not)
-    then error("invalid") else reduce ($retained+[.result.current[].votePubkey])[] as $v ([];if $v==$own or index($v) then . else .+[$v] end)|.[:$limit] end
+    then error("invalid") else
+      ($retained | map(select(.!=$own)))[:$limit] as $keep |
+      (reduce .result.current[].votePubkey as $vote ([];
+        if $vote==$own or ($keep|index($vote)) or index($vote) then . else .+[$vote] end
+      ) | map({vote:.,score:score(.+":"+$seed)}) | sort_by(.score,.vote) | map(.vote)) as $vacancies |
+      $keep + $vacancies[:($limit-($keep|length))]
+    end
   ' <<<"$response" 2>/dev/null
 }
 
@@ -263,19 +283,20 @@ fetch_leader_schedule() {
 }
 
 cache_is_valid() {
-  local document="$1" epoch="$2" first="$3" end="$4" nodes="$5" actual_nodes node slots slot prev
-  [[ "$(jq -r '.leader_schedule_epoch//""' <<<"$document")" == "$epoch" ]] || return 1
-  actual_nodes="$(jq -c '.leader_slots|keys|sort' <<<"$document")" || return 1
-  [[ "$actual_nodes" == "$(jq -c 'sort' <<<"$nodes")" ]] || return 1
-  while IFS=$'\t' read -r node slots; do
-    prev=''
-    while IFS= read -r slot; do
-      is_u63_decimal "$slot" || return 1
-      ((10#$slot>=10#$first && 10#$slot<10#$end)) || return 1
-      if [[ -n "$prev" ]]; then ((10#$slot>10#$prev)) || return 1; fi
-      prev="$slot"
-    done < <(jq -r '.[]' <<<"$slots")
-  done < <(jq -r '.leader_slots|to_entries[]|[.key,(.value|tojson)]|@tsv' <<<"$document")
+  local document="$1" epoch="$2" first="$3" end="$4" nodes="$5"
+  jq -e --arg epoch "$epoch" --arg first "$first" --arg end "$end" --argjson nodes "$nodes" '
+    def dec: type=="string" and test("^(0|[1-9][0-9]*)$") and ((length<19) or (length==19 and .<="9223372036854775807"));
+    def dec_lt($a;$b): (($a|length)<($b|length)) or ((($a|length)==($b|length)) and $a<$b);
+    def valid_slots($first;$limit):
+      . as $slots |
+      type=="array" and
+      all($slots[]; dec and (dec_lt(.;$first)|not) and dec_lt(.;$limit)) and
+      all(range(1;($slots|length)); . as $i | dec_lt($slots[$i-1];$slots[$i]));
+    .leader_schedule_epoch==$epoch and
+    (.leader_slots|type)=="object" and
+    ((.leader_slots|keys|sort)==($nodes|sort)) and
+    (.leader_slots as $slots | all($nodes[]; $slots[.]|valid_slots($first;$end)))
+  ' <<<"$document" >/dev/null 2>&1
 }
 
 leader_contaminated() {
@@ -374,7 +395,10 @@ cohort_result=''
 if [[ "$optional_kind" == cohort ]]; then
   optional_payload="$(jq -cn '{jsonrpc:"2.0",id:"v3-vote-accounts",method:"getVoteAccounts",params:[{commitment:"finalized"}]}')"
   if optional_response="$(rpc_call "$optional_payload" 2>/dev/null)"; then
-    cohort_result="$(select_cohort "$optional_response" "$(jq -c '.reference_votes' <<<"$state_json")")" || cohort_result=''
+    if ! cohort_result="$(select_cohort "$optional_response" "$(jq -c '.reference_votes' <<<"$state_json")")"; then
+      cohort_result=''
+      printf 'warning: optional cohort response invalid\n' >&2
+    fi
   else
     printf 'warning: optional cohort RPC failed\n' >&2
   fi

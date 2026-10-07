@@ -29,6 +29,17 @@ fixture="${MOCK_ALPENGLOW_V3_FIXTURE:-}"
 if [[ -n "$fixture" ]]; then
   [[ -f "$fixture" ]] || { printf 'mock: fixture missing\n' >&2; exit 2; }
   if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$payload"; then
+    sync_ready_file="$(jq -r '.sync_ready_file // empty' "$fixture")"
+    sync_release_file="$(jq -r '.sync_release_file // empty' "$fixture")"
+    if [[ -n "$sync_ready_file" ]]; then
+      : >"$sync_ready_file"
+      sync_wait=0
+      while [[ ! -e "$sync_release_file" ]] && ((sync_wait < 500)); do
+        sleep 0.01
+        ((sync_wait += 1))
+      done
+      [[ -e "$sync_release_file" ]] || { printf 'mock: synchronization release timed out\n' >&2; exit 2; }
+    fi
     fixture_delay="$(jq -r '.delay_seconds // 0' "$fixture")"
     [[ "$fixture_delay" == 0 ]] || sleep "$fixture_delay"
     requested_accounts="$(jq -c 'map(select(.id == "v3-accounts"))[0].params[0]' <<<"$payload")"
