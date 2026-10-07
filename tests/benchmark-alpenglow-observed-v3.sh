@@ -23,8 +23,13 @@ for index, (ref, node) in enumerate(zip(refs, nodes)):
 tracked_nodes = [identity, *nodes]
 epoch_first = 448940256
 leader_slots = {node: [] for node in tracked_nodes}
-for offset in range(432000):
-    leader_slots[tracked_nodes[offset % len(tracked_nodes)]].append(str(epoch_first + offset))
+# Roughly 382 KiB: nine selected validators with a deliberately skewed stake
+# distribution, rather than pretending the selected cohort owns the whole epoch.
+weights = [100, 55, 38, 29, 22, 17, 13, 10, 7]
+weighted_nodes = [index for index, weight in enumerate(weights) for _ in range(weight)]
+for selected in range(31750):
+    offset = 100000 + selected * 10
+    leader_slots[tracked_nodes[weighted_nodes[selected % len(weighted_nodes)]]].append(str(epoch_first + offset))
 state = {
     "version": 3,
     "genesis": "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY",
@@ -49,7 +54,7 @@ for index, (ref, node) in enumerate(zip(refs, nodes)):
 PY
 
 python3 - "$collector" "$mock_curl" "$tmp/state.json" "$tmp/fixture.json" <<'PY'
-import hashlib
+import json
 import os
 import statistics
 import subprocess
@@ -62,24 +67,31 @@ vote = "Vote111111111111111111111111111111111111111"
 command = [collector, "--rpc-url", "http://mock.invalid", "--identity", identity, "--vote-account", vote, "--state", state, "--reference-count", "8"]
 env = os.environ.copy()
 env.update({"CURL_BIN": mock_curl, "MOCK_ALPENGLOW_V3_IDENTITY": identity, "MOCK_ALPENGLOW_V3_VOTE": vote, "MOCK_ALPENGLOW_V3_FIXTURE": fixture})
-before = hashlib.sha256(open(state, "rb").read()).hexdigest()
 samples = []
 for index in range(100):
+    slot = 449000001 + index
+    fixture_data = json.load(open(fixture))
+    fixture_data["slot"] = slot
+    for account_index, account in enumerate(fixture_data["accounts"].values()):
+        baseline = 100 if account_index == 0 else 199 + account_index
+        account["history"][0]["credits"] = str(baseline + (index + 1) * 2)
+    with open(fixture, "w") as handle:
+        json.dump(fixture_data, handle, separators=(",", ":"))
+        handle.write("\n")
     started = time.perf_counter()
     result = subprocess.run(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     samples.append(time.perf_counter() - started)
     if result.returncode != 0 or not result.stdout.startswith("alpenglow_observed,") or result.stderr:
         print(f"benchmark invocation {index + 1} failed: rc={result.returncode} stderr={result.stderr!r}", file=sys.stderr)
         raise SystemExit(1)
-after = hashlib.sha256(open(state, "rb").read()).hexdigest()
-if before != after:
-    print("repeated production-shaped benchmark mutated state", file=sys.stderr)
-    raise SystemExit(1)
+final_state = json.load(open(state))
+if final_state["accounts"][vote]["slot"] != "449000100":
+    raise SystemExit("advancing benchmark did not persist every finalized slot")
 ordered = sorted(samples)
 p99 = ordered[98]
 median = statistics.median(samples)
 maximum = max(samples)
-print(f"production-shaped repeated timing: n=100 median={median:.3f}s p99={p99:.3f}s max={maximum:.3f}s state_bytes={os.path.getsize(state)}")
+print(f"production-shaped advancing timing: n=100 median={median:.3f}s p99={p99:.3f}s max={maximum:.3f}s state_bytes={os.path.getsize(state)}")
 if p99 >= 1.5:
-    raise SystemExit("production-shaped repeated p99 must remain below 1.5s")
+    raise SystemExit("production-shaped advancing p99 must remain below 1.5s")
 PY

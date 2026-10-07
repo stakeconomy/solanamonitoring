@@ -465,8 +465,11 @@ jq -cn --arg vote "$vote" --arg identity "$identity" --arg ref "$reference_vote"
     ($node):[range(216000;432000)]
   }}
 ' >"$MOCK_ALPENGLOW_V3_FIXTURE"
-run_capture "$tmp/large-schedule.out" "$tmp/large-schedule.err" \
-  --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$large_schedule_state" --reference-count 1
+set +e
+timeout 10 "$collector" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$large_schedule_state" --reference-count 1 \
+  >"$tmp/large-schedule.out" 2>"$tmp/large-schedule.err"
+CAPTURE_STATUS=$?
+set -e
 [[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'large valid leader schedule must not exceed the process argument limit'
 jq -e --arg identity "$identity" --arg node "$reference_node" '
   .leader_schedule_epoch=="1052" and
@@ -756,6 +759,33 @@ JSON
   [[ "$CAPTURE_STATUS" -eq 0 ]] || fail "$cache_kind cache value must normalize and refetch"
   jq -e --arg identity "$identity" '.leader_slots[$identity]==["449000003"] and .totals=={included:"1",expected:"2",missed:"1",unattributed_slots:"2"}' "$malformed_cache_state" >/dev/null ||
     fail "$cache_kind cache value must not bypass repaired leader contamination"
+done
+
+# Repeated finalized snapshots must not bypass full cache-value validation in the
+# no-rewrite fast path. Exact keys with a malformed value must take the repair path.
+export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/fast-malformed-fixture.json"
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000002,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"102","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"204","previousCredits":"0"}]}},"leader_schedule":{"$identity":[],"ReferenceNode1111111111111111111111111111111":[]}}
+JSON
+for cache_kind in object scalar null duplicate descending unsafe before-epoch at-epoch-end noncanonical; do
+  fast_malformed_state="$tmp/fast-malformed-$cache_kind-state.json"
+  cp "$accounting_state" "$fast_malformed_state"
+  case "$cache_kind" in
+    object) cache_value='{}' ;;
+    scalar) cache_value='7' ;;
+    null) cache_value='null' ;;
+    duplicate) cache_value='["449000001","449000001"]' ;;
+    descending) cache_value='["449000002","449000001"]' ;;
+    unsafe) cache_value='["9223372036854775808"]' ;;
+    before-epoch) cache_value='["448940255"]' ;;
+    at-epoch-end) cache_value='["449372256"]' ;;
+    noncanonical) cache_value='["0449000001"]' ;;
+  esac
+  jq --arg identity "$identity" --argjson value "$cache_value" '.leader_slots[$identity]=$value' "$fast_malformed_state" >"$tmp/fast-malformed-new.json" && mv "$tmp/fast-malformed-new.json" "$fast_malformed_state"
+  run_capture "$tmp/fast-malformed-$cache_kind.out" "$tmp/fast-malformed-$cache_kind.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$fast_malformed_state" --reference-count 1
+  [[ "$CAPTURE_STATUS" -eq 0 ]] || fail "repeated snapshot with $cache_kind cache value must repair successfully"
+  jq -e --arg identity "$identity" '.leader_schedule_epoch=="1052" and .leader_slots[$identity]==[]' "$fast_malformed_state" >/dev/null ||
+    fail "repeated snapshot fast path must reject and repair $cache_kind cache values"
 done
 unset MOCK_ALPENGLOW_V3_FIXTURE
 

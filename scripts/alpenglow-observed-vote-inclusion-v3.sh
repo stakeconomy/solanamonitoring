@@ -143,7 +143,7 @@ emit_measurement() {
 
 validate_core_state() {
   local path="$1" row included expected missed sum
-  jq -e --arg genesis "$genesis_expected" '
+  row="$(jq -er --arg genesis "$genesis_expected" '
     def exact_keys($expected): (keys|sort)==($expected|sort);
     def dec: type=="string" and test("^(0|[1-9][0-9]*)$") and ((length<19) or (length==19 and .<="9223372036854775807"));
     def pos: dec and .!="0";
@@ -166,9 +166,9 @@ validate_core_state() {
       (if .node==null then .gcd==null and .samples==0 and .increment==null else true end)
     ) and
     ((.leader_schedule_epoch==null) or (.leader_schedule_epoch|dec)) and (.leader_slots|type)=="object" and
-    (.totals|exact_keys(["included","expected","missed","unattributed_slots"])) and (.totals.included|dec) and (.totals.expected|dec) and (.totals.missed|dec) and (.totals.unattributed_slots|dec) and (.last_attributed_slot|dec)
-  ' "$path" >/dev/null 2>&1 || return 1
-  row="$(jq -r '[.totals.included,.totals.expected,.totals.missed]|@tsv' "$path")" || return 1
+    (.totals|exact_keys(["included","expected","missed","unattributed_slots"])) and (.totals.included|dec) and (.totals.expected|dec) and (.totals.missed|dec) and (.totals.unattributed_slots|dec) and (.last_attributed_slot|dec) |
+    if . then [$root.totals.included,$root.totals.expected,$root.totals.missed]|@tsv else error("invalid") end
+  ' "$path" 2>/dev/null)" || return 1
   IFS=$'\t' read -r included expected missed <<<"$row"
   sum="$(checked_add "$included" "$missed")" || return 1
   [[ "$sum" == "$expected" ]]
@@ -177,10 +177,17 @@ validate_core_state() {
 validate_successor_state() {
   local path="$1"
   validate_core_state "$path" || return 1
-  jq -e '
+  jq -e --arg first "$epoch_first" --arg limit "$epoch_end" '
+    def dec: type=="string" and test("^(0|[1-9][0-9]*)$") and ((length<19) or (length==19 and .<="9223372036854775807"));
+    def dec_lt($a;$b): (($a|length)<($b|length)) or ((($a|length)==($b|length)) and $a<$b);
+    def valid_slots($start;$end):
+      . as $slots | type=="array" and
+      all($slots[]; dec and (dec_lt(.;$start)|not) and dec_lt(.;$end)) and
+      all(range(1;($slots|length)); . as $i | dec_lt($slots[$i-1];$slots[$i]));
     ([.accounts[] | select(.node!=null) | .node] | unique | sort) as $nodes |
     ((.leader_schedule_epoch==null and .leader_slots=={}) or
-     (.leader_schedule_epoch==.epoch and (.leader_slots|keys|sort)==$nodes))
+     (.leader_schedule_epoch==.epoch and (.leader_slots|keys|sort)==$nodes and
+      (.leader_slots as $slots | all($nodes[]; $slots[.]|valid_slots($first;$limit)))))
   ' "$path" >/dev/null 2>&1
 }
 
@@ -332,9 +339,9 @@ if [[ -e "$state_file" ]]; then
   validate_core_state "$state_file" || { printf 'error: invalid existing v3 state\n' >&2; exit 1; }
   state_exists=1
   state_json="$(<"$state_file")"
-  persisted_identity="$(jq -r '.pubkey' <<<"$state_json")"
-  persisted_vote="$(jq -r '.vote_account' <<<"$state_json")"
-  if [[ "$persisted_identity" != "$identity" || "$persisted_vote" != "$vote_account" ]]; then rotation=1; else persisted_references="$(jq -c '.reference_votes' <<<"$state_json")"; fi
+  state_binding="$(jq -r '[.pubkey,.vote_account,(.reference_votes|tojson)]|@tsv' <<<"$state_json")" || exit 1
+  IFS=$'\t' read -r persisted_identity persisted_vote persisted_references <<<"$state_binding"
+  if [[ "$persisted_identity" != "$identity" || "$persisted_vote" != "$vote_account" ]]; then rotation=1; persisted_references='[]'; fi
 fi
 requested_votes="$(jq -cn --arg vote "$vote_account" --argjson refs "$persisted_references" '[$vote]+$refs')" || exit 1
 batch_payload="$(jq -cn --argjson votes "$requested_votes" '[
@@ -345,14 +352,17 @@ batch_payload="$(jq -cn --argjson votes "$requested_votes" '[
 ]')" || { printf 'error: cannot build mandatory RPC batch\n' >&2; exit 1; }
 batch_response="$(rpc_call "$batch_payload" 2>/dev/null)" || { printf 'error: mandatory RPC batch failed\n' >&2; exit 1; }
 snapshot="$(parse_batch "$batch_response" "$requested_votes")" || { printf 'error: mandatory RPC data or isolation failure\n' >&2; exit 1; }
-observed_slot="$(jq -r '.slot' <<<"$snapshot")"
+mapfile -t snapshot_rows < <(jq -r '.slot, (.accounts|tojson), (.accounts[]|[.vote,(.valid|tostring),(.node//""),(.epoch//""),(.total//""),(.previous//"")]|@tsv)' <<<"$snapshot")
+observed_slot="${snapshot_rows[0]:-}"
+snapshot_accounts="${snapshot_rows[1]:-[]}"
 is_u63_decimal "$observed_slot" || { printf 'error: mandatory RPC integer out of range\n' >&2; exit 1; }
 epoch="$(derive_epoch "$observed_slot")"
 epoch_first="$(first_slot_of_epoch "$epoch")"
 epoch_end="$(checked_add "$epoch_first" 432000)" || { printf 'error: epoch arithmetic overflow\n' >&2; exit 1; }
 
 declare -A snap_valid=() snap_node=() snap_total=()
-while IFS=$'\t' read -r svote valid node sepoch total previous; do
+for snapshot_row in "${snapshot_rows[@]:2}"; do
+  IFS=$'\t' read -r svote valid node sepoch total previous <<<"$snapshot_row"
   snap_valid["$svote"]="$valid"
   if [[ "$valid" == true ]]; then
     if ! is_solana_pubkey "$node" || ! is_u63_decimal "$sepoch" || ! is_u63_decimal "$total" || ! is_u63_decimal "$previous" || ! dec_le "$previous" "$total" || ! dec_le "$sepoch" "$epoch"; then
@@ -361,18 +371,27 @@ while IFS=$'\t' read -r svote valid node sepoch total previous; do
     fi
     snap_node["$svote"]="$node"; snap_total["$svote"]="$total"
   fi
-done < <(jq -r '.accounts[]|[.vote,(.valid|tostring),(.node//""),(.epoch//""),(.total//""),(.previous//"")]|@tsv' <<<"$snapshot")
+done
 [[ "${snap_valid[$vote_account]:-false}" == true && "${snap_node[$vote_account]}" == "$identity" ]] || { printf 'error: invalid monitored account\n' >&2; exit 1; }
 
 # The normal two-second path is a repeated finalized snapshot. When config,
 # membership, nodes and totals are unchanged, no cache interpretation or state
 # rewrite is needed; preserve the existing bytes and emit directly.
 if ((state_exists==1 && rotation==0)); then
-  fast_row="$(jq -r --arg slot "$observed_slot" --argjson rc "$reference_count" --argjson rs "$rate_samples" --argjson snapshots "$(jq -c '.accounts' <<<"$snapshot")" '
+  fast_row="$(jq -r --arg slot "$observed_slot" --arg first "$epoch_first" --arg limit "$epoch_end" --argjson rc "$reference_count" --argjson rs "$rate_samples" --argjson snapshots "$snapshot_accounts" '
+    def dec: type=="string" and test("^(0|[1-9][0-9]*)$") and ((length<19) or (length==19 and .<="9223372036854775807"));
+    def dec_lt($a;$b): (($a|length)<($b|length)) or ((($a|length)==($b|length)) and $a<$b);
+    def valid_slots($start;$end):
+      . as $slots |
+      type=="array" and
+      all($slots[]; dec and (dec_lt(.;$start)|not) and dec_lt(.;$end)) and
+      all(range(1;($slots|length)); . as $i | dec_lt($slots[$i-1];$slots[$i]));
     . as $state |
+    ([.accounts[]|select(.node!=null)|.node]|unique|sort) as $nodes |
     if .config.reference_count==$rc and (.reference_votes|length)==$rc and .config.rate_samples==$rs and .accounts[.vote_account].slot==$slot and
        .leader_schedule_epoch==.epoch and
-       ((.leader_slots|keys|sort)==([.accounts[]|select(.node!=null)|.node]|unique|sort)) and
+       ((.leader_slots|keys|sort)==$nodes) and
+       (.leader_slots as $slots | all($nodes[]; $slots[.]|valid_slots($first;$limit))) and
        all($snapshots[]; .valid and ($state.accounts[.vote]!=null) and ($state.accounts[.vote].node==.node) and ($state.accounts[.vote].total==.total))
     then [.totals.included,.totals.expected,.totals.missed,.totals.unattributed_slots,.last_attributed_slot]|@tsv
     else empty end
@@ -399,6 +418,98 @@ if ((cold==0)); then
   persisted_monitored_slot="$(jq -r --arg vote "$vote_account" '.accounts[$vote].slot' <<<"$state_json")"
   dec_le "$persisted_monitored_total" "${snap_total[$vote_account]}" || { printf 'error: monitored total decreased\n' >&2; exit 1; }
   ((10#$observed_slot >= 10#$persisted_monitored_slot)) || { printf 'error: finalized slot regressed\n' >&2; exit 1; }
+fi
+
+# The common advancing path reads and validates the large state once, computes
+# exact decimal learner changes in Bash, then applies every mutation in one jq
+# pass. Exceptional membership/config/epoch/cache-repair paths fall through to
+# the conservative implementation below.
+if ((cold==0)) && ((10#$observed_slot > 10#$persisted_monitored_slot)); then
+  transition_rows="$(jq -r --arg epoch "$epoch" --arg first "$epoch_first" --arg limit "$epoch_end" --arg slot "$observed_slot" --arg vote "$vote_account" --argjson rc "$reference_count" --argjson rs "$rate_samples" --argjson snapshots "$snapshot_accounts" '
+    def dec: type=="string" and test("^(0|[1-9][0-9]*)$") and ((length<19) or (length==19 and .<="9223372036854775807"));
+    def dec_lt($a;$b): (($a|length)<($b|length)) or ((($a|length)==($b|length)) and $a<$b);
+    def valid_slots($start;$end):
+      . as $slots | type=="array" and
+      all($slots[]; dec and (dec_lt(.;$start)|not) and dec_lt(.;$end)) and
+      all(range(1;($slots|length)); . as $i | dec_lt($slots[$i-1];$slots[$i]));
+    . as $state |
+    ([$vote]+.reference_votes) as $votes |
+    ([$snapshots[] | select(.valid) | {key:.vote,value:.}] | from_entries) as $snap |
+    ([$votes[] | $snap[.].node] | unique | sort) as $nodes |
+    (.config.reference_count==$rc and .config.rate_samples==$rs and (.reference_votes|length)==$rc and
+     .epoch==$epoch and .accounts[$vote].slot!=$slot and
+     all($votes[]; ($snap[.]!=null) and ($state.accounts[.]!=null)) and
+     .leader_schedule_epoch==$epoch and (.leader_slots|keys|sort)==$nodes and
+     (.leader_slots as $slots | all($nodes[]; $slots[.]|valid_slots($first;$limit)))) as $eligible |
+    if $eligible then
+      (["OK",.accounts[$vote].slot,.totals.included,.totals.expected,.totals.missed,.totals.unattributed_slots,.last_attributed_slot]|@tsv),
+      ($votes[] as $v | $snap[$v] as $s | .accounts[$v] as $a |
+        [$v,$a.node,$a.total,($a.gcd//""),($a.samples|tostring),($a.increment//""),$s.node,$s.total,
+         (any(.leader_slots[$s.node][]?; dec_lt($a.slot;.) and (dec_lt($slot;.)|not))|tostring)]|join("|"))
+    else "NO" end
+  ' <<<"$state_json")" || exit 1
+  transition_header="${transition_rows%%$'\n'*}"
+  if [[ "$transition_header" == OK$'\t'* ]]; then
+    IFS=$'\t' read -r _ from_slot total_included total_expected total_missed total_unattributed last_attributed_slot <<<"$transition_header"
+    gap="$(checked_sub "$observed_slot" "$from_slot")" || exit 1
+    first_included="$(checked_add "$from_slot" 1)" || exit 1
+    safe_start="$(checked_add "$epoch_first" 8)" || exit 1
+    epoch_safe=1; ((10#$first_included>=10#$safe_start)) || epoch_safe=0
+    updates_json='['
+    update_sep=''
+    declare -A known_count=()
+    monitored_known=0
+    usable=0
+    while IFS='|' read -r tracked old_node old_total old_gcd old_samples old_increment current_node current_total contaminated; do
+      [[ -n "$tracked" ]] || continue
+      new_gcd="$old_gcd"; new_samples="$old_samples"; new_increment="$old_increment"; count=''; clean=1
+      if ! dec_le "$old_total" "$current_total" || [[ "$old_node" != "$current_node" ]]; then
+        [[ "$tracked" != "$vote_account" ]] || { printf 'error: monitored total decreased\n' >&2; exit 1; }
+        new_gcd=''; new_samples=0; new_increment=''
+      else
+        delta="$(checked_sub "$current_total" "$old_total")" || exit 1
+        ((epoch_safe)) || clean=0
+        [[ "$contaminated" == false ]] || clean=0
+        if ((clean)); then
+          if [[ "$delta" == 0 ]]; then count=0
+          elif [[ -z "$old_increment" ]]; then
+            if [[ -z "$old_gcd" ]]; then new_gcd="$delta"; else new_gcd="$(gcd_decimal "$old_gcd" "$delta")"; fi
+            new_samples=$((old_samples+1)); ((new_samples>rate_samples)) && new_samples=$rate_samples
+            if [[ "$gap" == 1 || "$new_samples" -ge "$rate_samples" ]]; then new_increment="$new_gcd"; fi
+            if [[ -n "$new_increment" && $((10#$delta%10#$new_increment)) -eq 0 ]]; then count=$((10#$delta/10#$new_increment)); ((count<=10#$gap)) || count=''; fi
+          elif ((10#$delta%10#$old_increment==0)); then
+            count=$((10#$delta/10#$old_increment)); ((count<=10#$gap)) || count=''
+            new_gcd="$(gcd_decimal "$old_gcd" "$delta")"; new_samples=$((old_samples+1)); ((new_samples>rate_samples)) && new_samples=$rate_samples
+          elif [[ "$gap" == 1 ]]; then new_gcd="$delta"; new_samples=1; new_increment="$delta"; count=1
+          else new_gcd="$delta"; new_samples=1; new_increment=''; count=''; fi
+        fi
+      fi
+      updates_json+="$update_sep{\"vote\":\"$tracked\",\"node\":\"$current_node\",\"total\":\"$current_total\",\"gcd\":$(if [[ -n "$new_gcd" ]]; then printf '\"%s\"' "$new_gcd"; else printf null; fi),\"samples\":$new_samples,\"increment\":$(if [[ -n "$new_increment" ]]; then printf '\"%s\"' "$new_increment"; else printf null; fi)}"
+      update_sep=','
+      if [[ -n "$count" ]]; then known_count["$tracked"]="$count"; if [[ "$tracked" == "$vote_account" ]]; then monitored_known=1; else usable=$((usable+1)); fi; fi
+    done <<<"${transition_rows#*$'\n'}"
+    updates_json+=']'
+    ready=0
+    if ((monitored_known && usable>0)); then
+      included_gap="${known_count[$vote_account]}"; expected_gap="$included_gap"
+      for ref in "${!known_count[@]}"; do [[ "$ref" != "$vote_account" && ${known_count[$ref]} -gt $expected_gap ]] && expected_gap="${known_count[$ref]}"; done
+      missed_gap=$((expected_gap-included_gap))
+      total_included="$(checked_add "$total_included" "$included_gap")" || exit 1
+      total_expected="$(checked_add "$total_expected" "$expected_gap")" || exit 1
+      total_missed="$(checked_add "$total_missed" "$missed_gap")" || exit 1
+      last_attributed_slot="$observed_slot"
+      ready=1
+    else
+      total_unattributed="$(checked_add "$total_unattributed" "$gap")" || exit 1
+    fi
+    state_json="$(jq -c --arg slot "$observed_slot" --arg i "$total_included" --arg e "$total_expected" --arg m "$total_missed" --arg u "$total_unattributed" --arg last "$last_attributed_slot" --argjson updates "$updates_json" '
+      reduce $updates[] as $x (.; .accounts[$x.vote]={node:$x.node,total:$x.total,slot:$slot,gcd:$x.gcd,samples:$x.samples,increment:$x.increment}) |
+      .totals={included:$i,expected:$e,missed:$m,unattributed_slots:$u} | .last_attributed_slot=$last
+    ' <<<"$state_json")" || exit 1
+    write_state_atomic "$state_json" || { printf 'error: atomic state write failed\n' >&2; exit 1; }
+    emit_measurement "$observed_slot" "$ready" "$usable"
+    exit 0
+  fi
 fi
 
 old_rate="$(jq -r '.config.rate_samples' <<<"$state_json")"
