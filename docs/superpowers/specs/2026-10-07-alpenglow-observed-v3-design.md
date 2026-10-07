@@ -40,13 +40,13 @@ The standalone collector runs independently so a leader slot contaminates only a
 The collector remains:
 
 ```text
-scripts/alpenglow-observed-vote-inclusion.sh
+scripts/alpenglow-observed-vote-inclusion-v3.sh
 ```
 
-It becomes a standalone CLI:
+The new v3 collector is a standalone CLI; the existing non-v3 helper and positional ABI remain untouched during shadow:
 
 ```bash
-scripts/alpenglow-observed-vote-inclusion.sh \
+scripts/alpenglow-observed-vote-inclusion-v3.sh \
   --rpc-url http://127.0.0.1:8899 \
   --identity <IDENTITY_PUBKEY> \
   --vote-account <VOTE_ACCOUNT_PUBKEY>
@@ -91,16 +91,18 @@ Transition ordering:
 | Wrong network, Tower, unknown consensus, RPC error, malformed account, or monitored `nodePubkey != --identity` | no output | no mutation |
 | Existing state is unreadable, truncated, structurally invalid, or violates cumulative invariants | no output, exit non-zero | no mutation; operator must move the bad file aside explicitly |
 
-An intentional identity or vote-account rotation is initialized by running the collector with the new explicit arguments against a valid Testnet Alpenglow snapshot. Only that valid snapshot may replace mismatched old state; an unproven observation never resets state.
+An intentional identity or vote-account rotation is initialized by running the collector with new explicit arguments against a valid Testnet Alpenglow snapshot. When configured identity differs from persisted identity, the mandatory batch includes only the newly configured monitored vote account—never persisted references. After ownership proof, replacement state starts with zero cumulative totals, an empty cohort, only the monitored baseline, null schedule cache, and reset learners; the optional call may then discover a fresh cohort. No old cohort, account, learner, or schedule record is retained.
 
-The normal RPC batch includes exact unique IDs for:
+`reference_count` and `rate_samples` are persisted under `config`. A changed `reference_count` preserves totals and initialized retained members, trims deterministically by persisted order when lowered, and adds null-baseline members through the optional repair call when raised. A changed `rate_samples` preserves totals and baselines but clears every learner before the current gap is classified, stores the new threshold, and emits `ready=0` for that invocation.
+
+The mandatory RPC batch includes exact unique IDs for:
 
 - `getGenesisHash`;
 - `getAgGenesisCert`;
 - `getEpochSchedule`;
 - finalized `getMultipleAccounts` with `encoding:"jsonParsed"` for the monitored vote account and persisted reference cohort.
 
-Reject missing or duplicate batch IDs, JSON-RPC errors, null monitored account, wrong owner, non-vote parsed type, malformed epoch-credit tuples, and invalid context slot. For `epochCredits`, select the latest entry whose epoch is not `18446744073709551615`; accept object form `{epoch,credits,previousCredits}` as canonical decimal strings, or legacy array form `[epoch,credits,previousCredits]` only when all numeric members are exact non-negative integers no greater than `9007199254740991`. The cumulative source total is that entry's `credits`; `previousCredits` is validated but is not subtracted.
+Reject missing or duplicate batch IDs, JSON-RPC errors, null monitored account, wrong owner, non-vote parsed type, malformed epoch-credit history, and invalid context slot. Parse `epochCredits` in array order after validating that non-marker epochs are strictly increasing and unique. Canonical object entries require `credits` and `previousCredits` as decimal strings and accept `epoch` as either a decimal string or an exact non-negative JSON integer no greater than `9007199254740991`. A marker entry is skipped only when both credit strings equal `18446744073709551615` and epoch is either that exact decimal string or an unsafe numeric token greater than `9007199254740991`; any other unsafe numeric epoch fails closed. Legacy array entries `[epoch,credits,previousCredits]` are accepted only when all three are exact non-negative JSON integers no greater than `9007199254740991`. The latest non-marker epoch must not exceed the slot-derived current epoch. The cumulative source total is its `credits`; `previousCredits` is validated but not subtracted.
 
 `getVoteAccounts` uses `commitment:"finalized"` only when creating or repairing the cohort. `getLeaderSchedule` uses `commitment:"confirmed"`, receives the current epoch's first absolute slot, rejects a null or non-object result, and runs only after an epoch change, a missing cache, or a tracked account node-identity change. Its returned values are epoch-relative slot offsets; validate `0 <= offset < slots_per_epoch` and persist absolute slots as `epoch_first_slot + offset`. `leaderScheduleSlotOffset` is persisted as part of the immutable schedule fingerprint but is not used in epoch arithmetic or as the `getLeaderSchedule` argument.
 
@@ -130,7 +132,7 @@ Acquire an exclusive non-blocking `flock` on `<state>.lock` before reading state
 
 Write state with a same-directory temporary file, mode `0600`, followed by atomic rename. A failed write emits no line, exits non-zero, and leaves the previous state intact.
 
-Strict state validation occurs before RPC interpretation. Require the exact schema shape, unique reference votes, at most the configured cohort size, valid account keys, signed-64-safe numeric strings and integers, monotonic non-negative totals, and:
+Strict state validation occurs before RPC interpretation. Require the exact schema shape, unique reference votes, configured account-key equality, valid nullable learner forms, signed-64-safe decimal strings, non-negative totals, and:
 
 ```text
 expected == included + missed
@@ -153,10 +155,14 @@ State schema:
 ```json
 {
   "version": 3,
-  "genesis": "...",
+  "genesis": "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY",
   "consensus": "alpenglow",
   "pubkey": "...",
   "vote_account": "...",
+  "config": {
+    "reference_count": 8,
+    "rate_samples": 20
+  },
   "schedule": {
     "slots_per_epoch": 432000,
     "leader_schedule_slot_offset": 432000,
@@ -164,36 +170,55 @@ State schema:
     "first_normal_epoch": 14,
     "first_normal_slot": 524256
   },
-  "epoch": 1053,
+  "epoch": "1053",
   "reference_votes": ["..."],
   "accounts": {
     "<vote-account>": {
       "node": "...",
       "total": "123456",
-      "slot": 449000000,
-      "rate_epoch": 1053,
+      "slot": "449000000",
       "gcd": "789",
       "samples": 20,
       "increment": "789"
+    },
+    "<new-reference-without-baseline>": {
+      "node": null,
+      "total": null,
+      "slot": null,
+      "gcd": null,
+      "samples": 0,
+      "increment": null
     }
   },
-  "leader_schedule_epoch": 1053,
+  "leader_schedule_epoch": "1053",
   "leader_slots": {
-    "<vote-account>": [449000100]
+    "<node-identity>": ["449000100"]
   },
   "totals": {
-    "included": 1000,
-    "expected": 1010,
-    "missed": 10,
-    "unattributed_slots": 400
+    "included": "1000",
+    "expected": "1010",
+    "missed": "10",
+    "unattributed_slots": "400"
   },
-  "last_attributed_slot": 449000000
+  "last_attributed_slot": "449000000"
 }
 ```
 
-RPC credit totals, GCD values, and increments remain canonical decimal strings in JSON. Validate every persisted or RPC-derived integer before arithmetic: decimal syntax only, range `0..9223372036854775807`, no jq numeric conversion for credit totals, checked addition/subtraction for slots and cumulative counters, and fail closed on overflow. Influx integer fields must also remain in signed-64 range.
+`accounts` keys must equal exactly the monitored vote account plus `reference_votes`. A newly selected reference uses the explicit all-null baseline form shown above. For an initialized account, `node`, `total`, and `slot` are non-null; `gcd` and `increment` are either canonical positive decimal strings or null; `samples` is an exact JSON integer in `0..rate_samples`; `increment != null` requires `gcd != null` and `samples >= 1`. Learner reset sets `gcd=null`, `samples=0`, and `increment=null`. `leader_schedule_epoch` is null when no cache exists, and `leader_slots` is then `{}`.
 
-Epoch arithmetic uses `MINIMUM_SLOTS_PER_EPOCH = 32` and the exact schedule tuple. For slot `s`:
+All potentially large state integers—epoch, slots, credit totals, GCD values, increments, and cumulative totals—are canonical decimal strings. Only bounded schema/config/sample values remain JSON numbers. Validate every string before Bash arithmetic: decimal syntax only, range `0..9223372036854775807`, checked addition/subtraction, and fail closed on overflow. jq must never convert these strings with `tonumber`. Influx integer fields are emitted directly from validated decimal strings with the `i` suffix.
+
+For this exact Testnet genesis, require the immutable schedule tuple to equal exactly:
+
+```text
+slotsPerEpoch=432000
+leaderScheduleSlotOffset=432000
+warmup=true
+firstNormalEpoch=14
+firstNormalSlot=524256
+```
+
+Any different tuple is an isolation failure and cannot replace or advance state. Epoch arithmetic uses `MINIMUM_SLOTS_PER_EPOCH = 32`. For slot `s`:
 
 ```text
 if warmup && s < first_normal_slot:
@@ -251,7 +276,7 @@ Deterministic snapshot transitions:
 | `to <` the monitored baseline slot | no output, non-zero exit | no mutation |
 | `to ==` the monitored baseline slot | emit unchanged totals with `ready=0`, `usable_references=0` | no baseline/counter change |
 | monitored account null, malformed, wrong owner/type, wrong node, or decreasing total | no output, non-zero exit | no mutation |
-| reference null or malformed | exclude it for this gap | remove that reference/account record; repair cohort on a later invocation |
+| reference null or malformed | exclude it for this gap | remove that reference/account record; if the optional-call slot is available, repair in the same invocation with null-baseline members, otherwise repair later |
 | reference total decreases | reference unknown for this gap | advance its baseline to the lower current total, clear its learner, keep membership |
 | tracked account node changes | account unknown for this gap | advance baseline, clear learner, invalidate that account's cached schedule |
 | leader schedule missing/null | affected account unknown | advance its valid baseline; retry schedule next invocation |
@@ -356,53 +381,50 @@ No reference identities, reason strings, epoch, or implementation internals beco
 
 ## Telegraf
 
-The collector has a hard invocation budget of `1.8s` and performs at most two sequential RPC calls, each capped by `--rpc-timeout` (default `0.7s`):
+Each invocation performs one mandatory normal batch and at most one optional RPC call, each capped by `--rpc-timeout` (default `0.7s`):
 
-1. mandatory normal batch: network markers, epoch schedule, and finalized account snapshot;
-2. at most one optional augmentation call, chosen deterministically: if the cohort is empty, `getVoteAccounts`; otherwise if any tracked schedule is missing, `getLeaderSchedule`; otherwise if the cohort is below its target, `getVoteAccounts`; otherwise no second call.
+1. mandatory batch: network markers, exact epoch schedule, and finalized account snapshot;
+2. optional call chosen after parsing the mandatory batch: if the cohort is empty, `getVoteAccounts`; otherwise if a schedule needed by a tracked account is missing, `getLeaderSchedule`; otherwise if the cohort is below target, `getVoteAccounts`; otherwise none.
 
-Cold start snapshots only the monitored account, proves ownership, and uses the optional call to select cohort membership. Reference baselines are established on a later normal batch. Missing schedules or references make affected accounts unknown for that invocation; they do not create a third call. An optional augmentation timeout leaves its cache missing, emits a valid `ready=0` sample from the mandatory snapshot, and advances only valid current baselines. No state write happens until the mandatory snapshot is fully validated, so Telegraf termination cannot expose a partial successor file.
+Cold start snapshots only the monitored account, proves ownership, and may select cohort membership. Reference baselines are null until a later normal batch. A failed optional call invalidates only accounts that require its missing data: an existing clean monitored account plus at least one existing clean reference may still attribute the gap. If attribution remains possible, emit `ready=1`; otherwise emit `ready=0` and count the span once as unattributed. A same-invocation cohort repair adds new members in the explicit null-baseline form; they become usable only on a later snapshot. No path makes a third RPC call.
 
-Install the standalone collector sudo rule before enabling its input, while preserving the existing `monitor.sh` rule:
+The script writes stdout only after its atomic state rename succeeds. Telegraf uses a `3s` timeout, deliberately longer than the `2s` interval; the non-blocking state lock makes overlapping scheduler launches exit quietly instead of running concurrently. Shadow acceptance still requires p99 runtime below `1.5s`, leaving operational headroom without claiming an unenforceable whole-process deadline.
+
+Install the standalone collector sudo rule before enabling its input. The v3 rule must include the exact production arguments, including the fixed state path, so Telegraf cannot choose another RPC destination, identity, vote account, state file, or parser setting:
 
 ```sudoers
 telegraf ALL=(solana) NOPASSWD: /home/solana/solanamonitoring/monitor.sh
-telegraf ALL=(solana) NOPASSWD: /home/solana/solanamonitoring/scripts/alpenglow-observed-vote-inclusion.sh
+telegraf ALL=(solana) NOPASSWD: /home/solana/solanamonitoring/scripts/alpenglow-observed-vote-inclusion-v3.sh --rpc-url http\://127.0.0.1\:8899 --identity VALIDATOR_IDENTITY --vote-account VALIDATOR_VOTE_ACCOUNT --state /home/solana/.config/solana/alpenglow-observed-vote-inclusion-v3.json --rpc-timeout 0.7 --reference-count 8 --rate-samples 20
 ```
 
-Install as root-owned mode `0440`, then require:
-
-```bash
-visudo -c
-sudo -ll -U telegraf
-sudo -n -H -u solana -- /home/solana/solanamonitoring/scripts/alpenglow-observed-vote-inclusion.sh --help
-```
+Install as root-owned mode `0440`, run `visudo -c`, and inspect `sudo -ll -U telegraf` for the exact argument-bound command. Then execute that exact production command once in shadow mode and verify its output/state; `--help` is a normal unprivileged script check and is not authorized through sudo.
 
 Add the second input only after that validation:
 
 ```toml
 [[inputs.exec]]
-  commands = ["/usr/bin/sudo -n -H -u VALIDATOR_USER -- /home/VALIDATOR_USER/solanamonitoring/scripts/alpenglow-observed-vote-inclusion.sh --rpc-url http://127.0.0.1:8899 --identity VALIDATOR_IDENTITY --vote-account VALIDATOR_VOTE_ACCOUNT --rpc-timeout 0.7"]
+  commands = ["/usr/bin/sudo -n -H -u VALIDATOR_USER -- /home/VALIDATOR_USER/solanamonitoring/scripts/alpenglow-observed-vote-inclusion-v3.sh --rpc-url http://127.0.0.1:8899 --identity VALIDATOR_IDENTITY --vote-account VALIDATOR_VOTE_ACCOUNT --state /home/VALIDATOR_USER/.config/solana/alpenglow-observed-vote-inclusion-v3.json --rpc-timeout 0.7 --reference-count 8 --rate-samples 20"]
   interval = "2s"
-  timeout = "1900ms"
+  timeout = "3s"
   data_format = "influx"
 ```
 
-The existing one-minute `monitor.sh` input and sudo rule stay unchanged throughout shadow rollout. The 1.9-second Telegraf timeout is shorter than the interval and longer than the collector's 1.8-second budget.
+The existing one-minute `monitor.sh` input and sudo rule stay unchanged throughout shadow rollout.
 
 Exit contract:
 
 | Class | stdout | stderr | exit | state |
 |---|---|---|---:|---|
+| `--help` | usage text | empty | 0 | no lock/RPC/state access |
 | valid snapshot | one complete Influx line | optional bounded warning | 0 | atomic successor |
 | lock held | empty | empty | 0 | unchanged |
 | invalid arguments | empty | concise error | 64 | unchanged |
 | dependency unavailable | empty | concise error | 69 | unchanged |
 | mandatory RPC/JSON/isolation/state-validation failure | empty | concise error | 1 | unchanged |
-| optional schedule/cohort call fails after a valid mandatory snapshot | one complete `ready=0` line | concise warning | 0 | valid baselines advance; failed cache remains missing |
+| optional call fails after a valid mandatory snapshot | one complete line reflecting actual per-account usability | concise warning | 0 | valid baselines advance; failed cache remains missing |
 | atomic write fails | empty | concise error | 1 | previous state retained |
 
-If target hardware cannot remain below 1.8 seconds at p99 during shadow operation, v3 does not cut over. A persistent implementation is a later fallback, not part of this KISS design.
+If target hardware cannot remain below 1.5 seconds at p99 during shadow operation, v3 does not cut over. A persistent implementation is a later fallback, not part of this KISS design.
 
 ## Grafana
 
@@ -439,19 +461,19 @@ round(increase(alpenglow_observed_missed_total{cluster=~"$cluster",genesis=~"$ge
 
 History uses the same rolling ten-minute rate.
 
-Collection status is independent of historical counts. A compact status panel contains:
+Collection status is independent of historical counts. A compact status panel queries the latest instant-vector sample:
 
 ```promql
-last_over_time(alpenglow_observed_ready{cluster=~"$cluster",genesis=~"$genesis",consensus="alpenglow",pubkey="$pubkey",vote_account=~"$vote_account",schema="3"}[15s])
+alpenglow_observed_ready{cluster=~"$cluster",genesis=~"$genesis",consensus="alpenglow",pubkey="$pubkey",vote_account=~"$vote_account",schema="3"}
 ```
 
-with value mapping `1 = Current gap attributed`, `0 = Collecting / latest gap unattributed`, and no data = `No recent samples`; plus sample age:
+and its actual scrape age:
 
 ```promql
-time() - timestamp(last_over_time(alpenglow_observed_observed_slot{cluster=~"$cluster",genesis=~"$genesis",consensus="alpenglow",pubkey="$pubkey",vote_account=~"$vote_account",schema="3"}[15s]))
+time() - timestamp(alpenglow_observed_observed_slot{cluster=~"$cluster",genesis=~"$genesis",consensus="alpenglow",pubkey="$pubkey",vote_account=~"$vote_account",schema="3"})
 ```
 
-A latest `ready=1` with zero expected increase is shown as `No vote opportunities in the last 10 minutes`, not as unavailable collection. Historical rate/count queries are never gated by latest readiness.
+The age result uses the original instant sample timestamp, not a range-function result. Map age `<=5s` as current and `>5s` as stale; no sample is `No recent samples`. Within a current sample, map `ready=1` to `Current gap attributed` and `ready=0` to `Collecting / latest gap unattributed`. A separate zero-opportunity condition uses the ten-minute expected increase: latest `ready=1`, current age, and expected increase `0` displays `No vote opportunities in the last 10 minutes`. Historical rate/count queries are never gated by latest readiness.
 
 Remove:
 
@@ -497,13 +519,16 @@ Do not migrate v2 interval state into v3 cumulative totals. Rollback never copie
 14. Two concurrent invocations cannot both advance state; forced termination during a write leaves the previous JSON valid.
 15. Large candidate population selects default eight, configurable up to 32, with bounded parser subprocesses and snapshots at most monitored plus configured references.
 16. Every successful snapshot emits all eight fields and escaped bounded tags, even when totals do not change.
-17. Signed-64 overflow, unsafe schedule arithmetic, malformed epoch tuples, duplicate/missing batch IDs, JSON-RPC errors, wrong owner/type, and null schedules fail closed as specified.
-18. Mandatory batch plus one optional call respects the 1.8-second collector budget; no path makes a third RPC call.
-19. Exit codes/stdout/stderr match the exit contract, including quiet successful lock contention and optional-call warning behavior.
-20. Telegraf has a separate two-second input with `1900ms` timeout and `0.7`-second RPC timeout; installation docs preserve and validate both narrow sudo rules.
-21. Dashboard uses exact schema-v3 ten-minute `increase()` queries, no clamp, bounded selectors, count rounding, collection readiness, and sample age; zero-opportunity differs from stale collection.
-22. Dashboard transformation remains byte-idempotent with no duplicate IDs or overlap, and existing Mainnet Tower panels remain unchanged.
-23. Shadow configuration retains legacy collection; a separate cutover fixture removes legacy invocation only in phase three.
+17. Decimal-string state preserves values above jq's exact-number range; overflow, wrong fixed schedule tuple, malformed/unsorted epoch history, duplicate/missing batch IDs, JSON-RPC errors, wrong owner/type, and unsafe marker forms fail closed.
+18. Mandatory batch plus at most one optional call never makes a third RPC call; every fixture path remains below the `1.5s` p99 target in repeated local timing runs.
+19. Optional-call failure invalidates only dependent accounts and still attributes when an existing clean monitored account and reference remain.
+20. Exit codes/stdout/stderr match the exit contract, including `--help`, quiet lock contention, and optional-call warning behavior.
+21. Telegraf has a separate two-second input with `3s` timeout, exact fixed arguments, and `0.7`-second RPC timeout; sudoers tests reject altered state, RPC URL, identity, or parser arguments while preserving the old monitor rule.
+22. The legacy helper path and thirteen-positional-argument ABI remain unchanged during shadow; v3 uses the separate `-v3.sh` path.
+23. Changed identity discards old cohort/cache/learners; changed reference count adjusts membership deterministically; changed rate-sample threshold resets learners without resetting totals.
+24. Dashboard uses exact schema-v3 ten-minute `increase()` queries, no clamp, bounded selectors, count rounding, instant-sample timestamp age, and a five-second stale threshold; zero-opportunity differs from stale collection.
+25. Dashboard transformation remains byte-idempotent with no duplicate IDs or overlap, and existing Mainnet Tower panels remain unchanged.
+26. Shadow configuration retains legacy collection; a separate cutover fixture removes legacy invocation only in phase three.
 
 ## Acceptance gates
 
@@ -513,14 +538,14 @@ Before push:
 - every new behavior has a recorded RED failure before implementation;
 - dashboard transformation is byte-idempotent and has no overlapping panels;
 - state writes are atomic and lock/termination tests pass;
-- every fixture path completes below 1.8 seconds and never performs more than two RPC calls;
+- repeated fixture timing demonstrates p99 below 1.5 seconds and no path performs more than two RPC calls;
 - `git diff --check` passes and only intended files are committed.
 
 Before production cutover:
 
-- sudoers file validates with `visudo -c`, `sudo -ll -U telegraf`, and a non-interactive collector help probe;
+- sudoers file validates with `visudo -c`, `sudo -ll -U telegraf`, rejection probes for altered arguments, and one exact production-command shadow invocation;
 - 24-hour shadow run on the target validator;
-- p99 collector runtime below 1.8 seconds and no Telegraf timeout;
+- p99 collector runtime below 1.5 seconds and no Telegraf timeout;
 - no invariant violation, corrupt state, or schema-v3 Mainnet/Tower series;
 - state survives restart and learner recovery survives restart;
 - VictoriaMetrics receives repeated cumulative samples, including unchanged totals;
@@ -531,4 +556,4 @@ Before production cutover:
 
 ## Residual limitation
 
-The denominator remains an estimate. A bounded reference cohort can collectively miss an opportunity, so estimated misses may be undercounted. Portable RPC reward accounting cannot eliminate this limitation or identify which peer omitted a vote.
+The denominator and learned per-inclusion increment remain estimates. A bounded reference cohort can collectively miss an opportunity, so estimated misses may be undercounted. Multi-gap GCD promotion can retain a common multiplier and therefore undercount both included and expected events; the twenty-sample threshold reduces but cannot prove away that risk. A one-slot positive gap is the only direct atomic-increment observation in this RPC model. Every panel therefore labels the values RPC-derived estimates, and historical counters are never rewritten when later evidence changes a learner. Portable RPC reward accounting cannot eliminate these limitations or identify which peer omitted a vote.
