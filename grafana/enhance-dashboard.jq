@@ -850,7 +850,7 @@ def interface_filter:
     {"type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0"}
   ]
 | .description = "Solana validator and host health dashboard maintained by Stakeconomy.com. Links each validator identity to its reporting system host and supports dynamic mounts, interfaces, and aligned software/status timelines."
-| .refresh = "1m"
-| .timepicker.refresh_intervals = ["1m", "2m", "5m", "15m", "30m", "1h"]
+| .refresh = "5s"
+| .timepicker.refresh_intervals = ["5s", "10s", "30s", "1m", "2m", "5m", "15m", "30m", "1h"]
 | .annotations.list |= map(.enable = false)
 | .version = ((.version // 0) + (if ($layout_done and $query_optimization_done and $selector_linked) then 0 else 1 end))

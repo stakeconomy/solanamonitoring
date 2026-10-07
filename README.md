@@ -79,7 +79,7 @@ The effective rules must not contain `telegraf ALL=(ALL) NOPASSWD:ALL`. Follow t
 The example configuration keeps two independent inputs:
 
 - legacy `monitor.sh`: `interval = "1m"`, `timeout = "1m"`, schema v2;
-- standalone v3 collector: `interval = "2s"`, `timeout = "3s"`, fixed `--rpc-timeout 0.7 --reference-count 8 --rate-samples 20` and validator-home v3 state.
+- standalone v3 collector: `interval = "2s"`, `timeout = "10s"`, fixed `--rpc-timeout 0.7 --reference-count 8 --rate-samples 20` and validator-home v3 state. The longer timeout is only a bounded fail-safe for a full-epoch schedule refresh; `flock -n` prevents overlap and shadow acceptance still requires p99 below 1.5 seconds.
 
 Start from [`telegraf/solana-monitoring.conf.example`](telegraf/solana-monitoring.conf.example). Replace the Testnet-neutral `validator-community-host` example with a unique stable hostname, then change the validator username, repository path, RPC URL, fixed identity/vote account, and real validator mount points. Keep the Stakeconomy output settings when using the community dashboard. Do not configure `data_type = "integer"`; the emitted lines contain both integer and floating-point fields.
 

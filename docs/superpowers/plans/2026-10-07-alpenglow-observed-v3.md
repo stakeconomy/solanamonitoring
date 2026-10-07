@@ -16,7 +16,7 @@
 - Exact Testnet schedule: `432000,432000,true,14,524256`.
 - New script path: `scripts/alpenglow-observed-vote-inclusion-v3.sh`; do not alter the legacy helper's positional ABI.
 - Maximum two RPC requests per invocation: one mandatory batch and at most one optional request.
-- Default cadence/config: `2s`, RPC timeout `0.7`, reference count `8`, rate samples `20`, Telegraf timeout `3s`.
+- Default cadence/config: `2s`, RPC timeout `0.7`, reference count `8`, rate samples `20`, Telegraf fail-safe timeout `10s`.
 - All potentially large persisted integers are canonical decimal strings; never use jq `tonumber` on them.
 - State updates use non-blocking `flock`, same-directory mode-0600 temporary file, and atomic rename.
 - Measurement tags are bounded to cluster, genesis, consensus, pubkey, vote_account, and schema.
@@ -168,7 +168,7 @@ git commit -m "feat: persist cumulative Alpenglow inclusion estimates"
 - Produces a separate two-second Telegraf input and exact-argument sudoers documentation.
 - Preserves the one-minute schema-v2 input and rule.
 
-- [ ] **Step 1: Add RED assertions for a second input with exact script path, fixed arguments/state path, `interval="2s"`, `timeout="3s"`, and `--rpc-timeout 0.7`.**
+- [ ] **Step 1: Add RED assertions for a second input with exact script path, fixed arguments/state path, `interval="2s"`, `timeout="10s"`, and `--rpc-timeout 0.7`.**
 
 Also assert the old `monitor.sh` input still exists and the new sudoers example binds every production argument.
 

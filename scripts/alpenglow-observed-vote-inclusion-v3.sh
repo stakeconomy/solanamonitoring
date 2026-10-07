@@ -75,7 +75,7 @@ if [[ ! "$reference_count" =~ ^[1-9][0-9]*$ ]] || ((${#reference_count} > 2)) ||
 if [[ ! "$rate_samples" =~ ^[1-9][0-9]*$ ]] || ((${#rate_samples} > 3)) || ((rate_samples > 100)); then fail_usage '--rate-samples must be between 1 and 100'; fi
 [[ -n "$cohort_seed" && ${#cohort_seed} -le 128 ]] || fail_usage 'MONITOR_ALPENGLOW_COHORT_SEED must be 1..128 characters'
 has_control "$cohort_seed" && fail_usage 'MONITOR_ALPENGLOW_COHORT_SEED must not contain control characters'
-for command_name in bash "$curl_bin" jq flock mktemp mv chmod date sed; do
+for command_name in bash "$curl_bin" jq flock mktemp mv chmod date sed mkdir rm; do
   command -v "$command_name" >/dev/null 2>&1 || { printf 'error: required command unavailable: %s\n' "$command_name" >&2; exit 69; }
 done
 
@@ -131,7 +131,7 @@ write_state_atomic() {
   state_dir="${state_file%/*}"; [[ "$state_dir" != "$state_file" ]] || state_dir='.'
   [[ -d "$state_dir" ]] || mkdir -p "$state_dir" 2>/dev/null || return 1
   temp_state="$(mktemp "$state_dir/.alpenglow-observed-v3.XXXXXX")" || return 1
-  if ! printf '%s\n' "$document" >"$temp_state" || ! chmod 0600 "$temp_state" || ! mv -f -- "$temp_state" "$state_file"; then rm -f -- "$temp_state"; return 1; fi
+  if ! printf '%s\n' "$document" >"$temp_state" || ! chmod 0600 "$temp_state" || ! validate_successor_state "$temp_state" || ! mv -f -- "$temp_state" "$state_file"; then rm -f -- "$temp_state"; return 1; fi
 }
 
 emit_measurement() {
@@ -172,6 +172,16 @@ validate_core_state() {
   IFS=$'\t' read -r included expected missed <<<"$row"
   sum="$(checked_add "$included" "$missed")" || return 1
   [[ "$sum" == "$expected" ]]
+}
+
+validate_successor_state() {
+  local path="$1"
+  validate_core_state "$path" || return 1
+  jq -e '
+    ([.accounts[] | select(.node!=null) | .node] | unique | sort) as $nodes |
+    ((.leader_schedule_epoch==null and .leader_slots=={}) or
+     (.leader_schedule_epoch==.epoch and (.leader_slots|keys|sort)==$nodes))
+  ' "$path" >/dev/null 2>&1
 }
 
 derive_epoch() {
@@ -218,7 +228,7 @@ parse_batch() {
     def history_entry:
       if type=="object" and exact_keys(["epoch","credits","previousCredits"]) and (.credits|dec) and (.previousCredits|dec) then
         if ((.epoch|type)=="string" and (.epoch|test("^__unsafe_numeric__:[0-9]+$"))) then
-          if .credits=="18446744073709551615" and .previousCredits=="18446744073709551615" then {marker:true} else error("unsafe numeric epoch") end
+          if .epoch=="__unsafe_numeric__:18446744073709551615" and .credits=="18446744073709551615" and .previousCredits=="18446744073709551615" then {marker:true} else error("unsafe numeric epoch") end
         elif (.epoch|dec) then
           if .epoch=="18446744073709551615" and .credits=="18446744073709551615" and .previousCredits=="18446744073709551615" then {marker:true}
           elif .credits=="18446744073709551615" or .previousCredits=="18446744073709551615" then error("marker")
@@ -321,7 +331,7 @@ persisted_references='[]'
 if [[ -e "$state_file" ]]; then
   validate_core_state "$state_file" || { printf 'error: invalid existing v3 state\n' >&2; exit 1; }
   state_exists=1
-  state_json="$(jq -c . "$state_file")" || exit 1
+  state_json="$(<"$state_file")"
   persisted_identity="$(jq -r '.pubkey' <<<"$state_json")"
   persisted_vote="$(jq -r '.vote_account' <<<"$state_json")"
   if [[ "$persisted_identity" != "$identity" || "$persisted_vote" != "$vote_account" ]]; then rotation=1; else persisted_references="$(jq -c '.reference_votes' <<<"$state_json")"; fi
@@ -353,6 +363,26 @@ while IFS=$'\t' read -r svote valid node sepoch total previous; do
   fi
 done < <(jq -r '.accounts[]|[.vote,(.valid|tostring),(.node//""),(.epoch//""),(.total//""),(.previous//"")]|@tsv' <<<"$snapshot")
 [[ "${snap_valid[$vote_account]:-false}" == true && "${snap_node[$vote_account]}" == "$identity" ]] || { printf 'error: invalid monitored account\n' >&2; exit 1; }
+
+# The normal two-second path is a repeated finalized snapshot. When config,
+# membership, nodes and totals are unchanged, no cache interpretation or state
+# rewrite is needed; preserve the existing bytes and emit directly.
+if ((state_exists==1 && rotation==0)); then
+  fast_row="$(jq -r --arg slot "$observed_slot" --argjson rc "$reference_count" --argjson rs "$rate_samples" --argjson snapshots "$(jq -c '.accounts' <<<"$snapshot")" '
+    . as $state |
+    if .config.reference_count==$rc and (.reference_votes|length)==$rc and .config.rate_samples==$rs and .accounts[.vote_account].slot==$slot and
+       .leader_schedule_epoch==.epoch and
+       ((.leader_slots|keys|sort)==([.accounts[]|select(.node!=null)|.node]|unique|sort)) and
+       all($snapshots[]; .valid and ($state.accounts[.vote]!=null) and ($state.accounts[.vote].node==.node) and ($state.accounts[.vote].total==.total))
+    then [.totals.included,.totals.expected,.totals.missed,.totals.unattributed_slots,.last_attributed_slot]|@tsv
+    else empty end
+  ' <<<"$state_json")" || exit 1
+  if [[ -n "$fast_row" ]]; then
+    IFS=$'\t' read -r total_included total_expected total_missed total_unattributed last_attributed_slot <<<"$fast_row"
+    emit_measurement "$observed_slot" 0 0
+    exit 0
+  fi
+fi
 
 cold=0
 if ((state_exists==0 || rotation==1)); then
@@ -410,6 +440,17 @@ fi
 
 persisted_epoch="$(jq -r '.epoch' <<<"$state_json")"
 from_slot="$(jq -r --arg vote "$vote_account" '.accounts[$vote].slot' <<<"$state_json")"
+if ((cold==0)) && [[ "$observed_slot" == "$from_slot" ]]; then
+  state_json="$(jq -c --argjson snapshots "$(jq -c '.accounts' <<<"$snapshot")" '
+    reduce $snapshots[] as $s (.;
+      if $s.valid and .accounts[$s.vote]!=null and .accounts[$s.vote].node!=$s.node then
+        .accounts[$s.vote].node=$s.node |
+        .accounts[$s.vote].gcd=null |
+        .accounts[$s.vote].samples=0 |
+        .accounts[$s.vote].increment=null
+      else . end)
+  ' <<<"$state_json")" || exit 1
+fi
 if ((cold)); then
   ready=0; usable=0
 elif ((10#$observed_slot<10#$from_slot)); then

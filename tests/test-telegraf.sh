@@ -53,7 +53,7 @@ expected = [
     {
         "commands": [v3_command],
         "interval": "2s",
-        "timeout": "3s",
+        "timeout": "10s",
         "data_format": "influx",
     },
 ]

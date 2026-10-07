@@ -76,7 +76,7 @@
   # Mainnet and Tower validators retain only the legacy input above.
   commands = ["/usr/bin/sudo -n -H -u VALIDATOR_USER -- /home/VALIDATOR_USER/solanamonitoring/scripts/alpenglow-observed-vote-inclusion-v3.sh --rpc-url http://127.0.0.1:8899 --identity VALIDATOR_IDENTITY --vote-account VALIDATOR_VOTE_ACCOUNT --state /home/VALIDATOR_USER/.config/solana/alpenglow-observed-vote-inclusion-v3.json --rpc-timeout 0.7 --reference-count 8 --rate-samples 20"]
   interval = "2s"
-  timeout = "3s"
+  timeout = "10s"
   data_format = "influx"
 
 [[outputs.influxdb]]

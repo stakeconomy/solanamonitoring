@@ -93,6 +93,28 @@ jq -e --arg identity "$identity" --arg vote "$vote" '
   (has("pending") | not) and (has("included_total") | not)
 ' "$state" >/dev/null || fail 'cold state must match the exact v3 schema'
 
+# Every externally used command is part of the fail-fast dependency contract.
+for missing_command in mkdir rm; do
+  dep_bin="$tmp/deps-without-$missing_command"
+  mkdir "$dep_bin"
+  for required in bash jq flock mktemp mv chmod date sed mkdir rm; do
+    [[ "$required" == "$missing_command" ]] && continue
+    ln -s "$(command -v "$required")" "$dep_bin/$required"
+  done
+  dep_state="$tmp/dependency-$missing_command.json"
+  cp "$state" "$dep_state"
+  dep_before="$(sha256sum "$dep_state")"
+  set +e
+  PATH="$dep_bin" CURL_BIN="$CURL_BIN" "$collector" \
+    --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$dep_state" \
+    >"$tmp/dependency-$missing_command.out" 2>"$tmp/dependency-$missing_command.err"
+  dep_status=$?
+  set -e
+  [[ "$dep_status" -eq 69 && ! -s "$tmp/dependency-$missing_command.out" ]] || fail "missing $missing_command must exit 69 without stdout"
+  grep -q "required command unavailable: $missing_command" "$tmp/dependency-$missing_command.err" || fail "missing $missing_command must name the dependency"
+  [[ "$(sha256sum "$dep_state")" == "$dep_before" ]] || fail "missing $missing_command must not mutate state"
+done
+
 for scenario in context-api-version context-api-version-null; do
   export MOCK_ALPENGLOW_V3_SCENARIO="$scenario"
   context_state="$tmp/$scenario.json"
@@ -680,8 +702,20 @@ run_capture "$tmp/repeat.out" "$tmp/repeat.err" --rpc-url http://mock.invalid --
 [[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'repeated snapshot must succeed'
 [[ "$(sha256sum "$repeat_state")" == "$repeat_before" ]] || fail 'repeated unchanged snapshot must not mutate state bytes'
 grep -q 'ready=0i.*usable_references=0i' "$tmp/repeat.out" || fail 'repeated snapshot must emit not-ready unchanged totals'
+rotated_repeat_node='RepeatNode111111111111111111111111111111111'
 cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
-{"slot":449000001,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"102","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"ReferenceNode1111111111111111111111111111111","history":[{"epoch":"1052","credits":"204","previousCredits":"0"}]}}}
+{"slot":449000002,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"102","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"$rotated_repeat_node","history":[{"epoch":"1052","credits":"204","previousCredits":"0"}]}},"leader_schedule":{"$identity":[],"$rotated_repeat_node":[]}}
+JSON
+run_capture "$tmp/node-rotate-repeat.out" "$tmp/node-rotate-repeat.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$repeat_state" --reference-count 1
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'repeated-slot reference node rotation must self-repair'
+jq -e --arg vote "$vote" --arg ref 'ReferenceVote1111111111111111111111111111111' --arg own "$identity" --arg node "$rotated_repeat_node" '
+  .accounts[$vote].slot=="449000002" and .accounts[$vote].total=="102" and
+  .accounts[$ref]=={node:$node,total:"204",slot:"449000002",gcd:null,samples:0,increment:null} and
+  .totals=={included:"1",expected:"2",missed:"1",unattributed_slots:"0"} and
+  .leader_schedule_epoch=="1052" and (.leader_slots|keys|sort)==([$own,$node]|sort)
+' "$repeat_state" >/dev/null || fail 'repeated-slot rotation successor must immediately have refreshed account and exact cache keys'
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000001,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1052","credits":"102","previousCredits":"0"}]},"ReferenceVote1111111111111111111111111111111":{"node":"$rotated_repeat_node","history":[{"epoch":"1052","credits":"204","previousCredits":"0"}]}}}
 JSON
 regress_before="$(sha256sum "$repeat_state")"
 run_capture "$tmp/regress.out" "$tmp/regress.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$repeat_state" --reference-count 1
@@ -784,16 +818,22 @@ unset MONITOR_ALPENGLOW_COHORT_SEED
 jq -e --arg first "$dirty_ref" --arg second "$good_ref" '.reference_votes|length==3 and .[0]==$first and .[1]==$second' "$retain_state" >/dev/null || fail 'vacancy fill must retain persisted members in order'
 unset MOCK_ALPENGLOW_V3_FIXTURE
 
-# Unsafe numeric epochs are accepted only as migration markers when both credit
-# strings are exact u64-max markers. The marker is skipped before the valid entry.
+# Only the exact u64-max epoch token is a generation marker. A pseudo-marker with
+# max credits must fail closed rather than resetting duplicate/order validation.
 export MOCK_ALPENGLOW_V3_FIXTURE="$tmp/unsafe-marker-fixture.json"
 cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
-{"slot":449000000,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":9007199254740992,"credits":"18446744073709551615","previousCredits":"18446744073709551615"},{"epoch":"1052","credits":"10","previousCredits":"0"}]}}}
+{"slot":449000000,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1042","credits":"9","previousCredits":"0"},{"epoch":9007199254740992,"credits":"18446744073709551615","previousCredits":"18446744073709551615"},{"epoch":"1042","credits":"10","previousCredits":"9"}]}}}
 JSON
 unsafe_marker_state="$tmp/unsafe-marker-state.json"
 run_capture "$tmp/unsafe-marker.out" "$tmp/unsafe-marker.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$unsafe_marker_state"
-[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'unsafe numeric epoch with exact marker credits must be skipped'
-jq -e --arg vote "$vote" '.accounts[$vote].total=="10"' "$unsafe_marker_state" >/dev/null || fail 'unsafe numeric marker must preserve the following exact entry'
+[[ "$CAPTURE_STATUS" -eq 1 && ! -e "$unsafe_marker_state" && ! -s "$tmp/unsafe-marker.out" ]] || fail 'pseudo-marker unsafe epoch must fail closed'
+cat >"$MOCK_ALPENGLOW_V3_FIXTURE" <<JSON
+{"slot":449000000,"accounts":{"$vote":{"node":"$identity","history":[{"epoch":"1042","credits":"9","previousCredits":"0"},{"epoch":18446744073709551615,"credits":"18446744073709551615","previousCredits":"18446744073709551615"},{"epoch":"1042","credits":"10","previousCredits":"9"}]}}}
+JSON
+exact_numeric_marker_state="$tmp/exact-numeric-marker-state.json"
+run_capture "$tmp/exact-numeric-marker.out" "$tmp/exact-numeric-marker.err" --rpc-url http://mock.invalid --identity "$identity" --vote-account "$vote" --state "$exact_numeric_marker_state"
+[[ "$CAPTURE_STATUS" -eq 0 ]] || fail 'exact numeric u64-max marker must reset generation ordering'
+jq -e --arg vote "$vote" '.accounts[$vote].total=="10"' "$exact_numeric_marker_state" >/dev/null || fail 'exact numeric marker must preserve the post-marker generation'
 
 # An unsafe numeric epoch in one reference is isolated to that account. It is
 # removed while another clean reference still attributes the gap.

@@ -213,6 +213,8 @@ migrate_and_assert() {
   || fail 'canonical Grafana dashboard symlink targets the wrong root representation'
 
 jq -e . "$dashboard" >/dev/null || fail 'dashboard is not valid JSON'
+jq -e '.refresh=="5s" and (.timepicker.refresh_intervals|index("5s")!=null)' "$dashboard" >/dev/null \
+  || fail 'dashboard must actually refresh within the five-second freshness threshold'
 
 jq '[.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171)] | sort_by(.id)' \
   "$dashboard" >"$canonical_alpenglow_panels"
@@ -401,9 +403,10 @@ jq -e '
 ' "$dashboard" >/dev/null || fail 'raw validator gauges still use redundant range vectors'
 
 jq -e '
-  all(.timepicker.refresh_intervals[]; test("^[0-9]+s$") | not)
+  .refresh=="5s"
+  and .timepicker.refresh_intervals==["5s","10s","30s","1m","2m","5m","15m","30m","1h"]
   and all(.annotations.list[]; .enable == false)
-' "$dashboard" >/dev/null || fail 'dashboard permits sub-minute refreshes or unused annotations'
+' "$dashboard" >/dev/null || fail 'dashboard refresh cadence or annotation policy is noncanonical'
 
 if jq -r '.. | objects | .expr? // empty' "$dashboard" | grep -q 'ideriv'; then
   fail 'counter panels still use reset-unsafe ideriv queries'
@@ -546,6 +549,8 @@ mutate_and_migrate 'noncanonical-status-color-mode' '(.panels[] | select(.id == 
 mutate_and_migrate 'noncanonical-status-text-mode' '(.panels[] | select(.id == 170) | .options.textMode) = "auto"'
 mutate_and_migrate 'noncanonical-history-plugin-version' '(.panels[] | select(.id == 171) | .pluginVersion) = "0.0.0"'
 mutate_and_migrate 'noncanonical-panel-datasource' '(.panels[] | select(.id == 168) | .datasource.uid) = "drifted-datasource"'
+mutate_and_migrate 'noncanonical-dashboard-refresh' '.refresh = "1m"'
+mutate_and_migrate 'noncanonical-refresh-intervals' '.timepicker.refresh_intervals = ["1m"]'
 mutate_and_migrate 'partial-schema-v3' '.panels |= map(select(.id != 169))'
 
 printf '%s\n' 'dashboard tests passed'
