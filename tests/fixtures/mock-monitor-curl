@@ -37,36 +37,6 @@ if [[ "${MOCK_RPC_FAIL:-0}" == 1 ]]; then
   exit 22
 fi
 
-if jq -e 'type == "object" and .id == "alpenglowObservedAccounts" and .method == "getMultipleAccounts"' >/dev/null 2>&1 <<<"$payload"; then
-  if [[ "${MOCK_LARGE_OBSERVED_ACCOUNTS:-0}" == 1 ]]; then
-    jq -cn --argjson request "$payload" '{
-      jsonrpc: "2.0",
-      id: "alpenglowObservedAccounts",
-      result: {
-        context: {slot: 100},
-        value: [$request.params[0][] | {
-          data: {parsed: {info: {epochCredits: [{epoch: "1026", credits: "1000", previousCredits: "900"}]}}}
-        }]
-      }
-    }'
-    exit 0
-  fi
-  case "${MOCK_OBSERVED_STAGE:-1}" in
-    1) exec jq . "$fixture_dir/alpenglow-observed-accounts-1.json" ;;
-    2) exec jq . "$fixture_dir/alpenglow-observed-accounts-2.json" ;;
-    3) exec jq . "$fixture_dir/alpenglow-observed-accounts-3.json" ;;
-    *) exit 22 ;;
-  esac
-fi
-
-if jq -e 'type == "object" and .id == "alpenglowObservedLeaders" and .method == "getLeaderSchedule"' >/dev/null 2>&1 <<<"$payload"; then
-  if [[ "${MOCK_NO_OBSERVED_LEADERS:-0}" == 1 ]]; then
-    printf '%s\n' '{"jsonrpc":"2.0","id":"alpenglowObservedLeaders","result":{}}'
-    exit 0
-  fi
-  exec jq . "$fixture_dir/alpenglow-observed-leader-schedule.json"
-fi
-
 if jq -e 'type == "array" and any(.[]; .id == "performanceFallback")' >/dev/null 2>&1 <<<"$payload"; then
   if [[ -n "${MOCK_REQUIRE_PERFORMANCE_ENDPOINT:-}" && \
         "$endpoint" != "$MOCK_REQUIRE_PERFORMANCE_ENDPOINT" ]]; then
@@ -96,15 +66,6 @@ if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$payload"; then
   if [[ "${MOCK_AG_CERT_NULL:-0}" == 1 ]]; then
     batch_filter+=' | map(if .id == "agGenesisCert" then .result = null else . end)'
   fi
-  if [[ -n "${MOCK_OBSERVED_STAGE:-}" ]]; then
-    case "$MOCK_OBSERVED_STAGE" in
-      1) observed_slot=100 ;;
-      2) observed_slot=110 ;;
-      3) observed_slot=120 ;;
-      *) exit 22 ;;
-    esac
-    batch_filter+=" | map(if .id == \"finalizedEpochInfo\" then .result.absoluteSlot = $observed_slot | .result.slotIndex = $observed_slot elif .id == \"finalizedSlot\" then .result = $observed_slot else . end)"
-  fi
   exec jq "$batch_filter" "$fixture_dir/monitor-batch.json"
 fi
 
@@ -123,17 +84,6 @@ if [[ "$(jq -r '.method // ""' <<<"$payload")" == "getVoteAccounts" ]]; then
   if [[ "${MOCK_INVALID_ALPENGLOW_EPOCH_CREDIT:-0}" == 1 ]]; then
     vote_filter+=' | .result.current[0].epochCredits[-1] = [1026, 2336223624]'
   fi
-  case "${MOCK_REFERENCE_COHORT_STAGE:-}" in
-    1)
-      vote_filter+=' | .result.current += [{"activatedStake":4000000000000000,"commission":5,"epochCredits":[[1026,1000,900]],"epochVoteAccount":true,"lastVote":437726160,"nodePubkey":"AlternateValidator111111111111111111111111111","rootSlot":437726129,"votePubkey":"AlternateVote11111111111111111111111111111111"}]'
-      ;;
-    2)
-      vote_filter+=' | .result.current += [{"activatedStake":6000000000000000,"commission":5,"epochCredits":[[1026,1000,900]],"epochVoteAccount":true,"lastVote":437726160,"nodePubkey":"AlternateValidator111111111111111111111111111","rootSlot":437726129,"votePubkey":"AlternateVote11111111111111111111111111111111"}]'
-      ;;
-    3)
-      vote_filter+=' | .result.current |= map(select(.votePubkey != "CurrentVote111111111111111111111111111111111")) + [{"activatedStake":6000000000000000,"commission":5,"epochCredits":[[1026,1000,900]],"epochVoteAccount":true,"lastVote":437726160,"nodePubkey":"AlternateValidator111111111111111111111111111","rootSlot":437726129,"votePubkey":"AlternateVote11111111111111111111111111111111"}]'
-      ;;
-  esac
   exec jq "$vote_filter" "$fixture_dir/monitor-vote-accounts.json"
 fi
 

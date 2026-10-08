@@ -26,24 +26,6 @@ def target($ref; $expr; $legend):
     "refId": $ref
   };
 
-def alpenglow_selector:
-  "{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\",schema=\"3\"}";
-
-def alpenglow_included_increase:
-  "increase(alpenglow_observed_included_total" + alpenglow_selector + "[10m])";
-
-def alpenglow_expected_increase:
-  "increase(alpenglow_observed_expected_total" + alpenglow_selector + "[10m])";
-
-def alpenglow_missed_increase:
-  "increase(alpenglow_observed_missed_total" + alpenglow_selector + "[10m])";
-
-def alpenglow_rate:
-  "(100 * " + alpenglow_included_increase + " / " + alpenglow_expected_increase + ") and on(cluster,genesis,consensus,pubkey,vote_account,schema) (" + alpenglow_expected_increase + " > 0)";
-
-def alpenglow_disclosure:
-  "RPC-derived estimate using a bounded reference cohort; not direct certificate telemetry";
-
 def stat_panel($id; $title; $description; $expr; $unit; $x; $thresholds):
   {
     "datasource": datasource,
@@ -119,159 +101,6 @@ def timeline_panel($id; $title; $description; $expr; $x; $mappings):
     "transparent": true,
     "type": "state-timeline"
   };
-
-def observed_rate_panel:
-  stat_panel(
-    168; "Alpenglow vote inclusion rate — last 10 minutes";
-    (alpenglow_disclosure + ". Rolling included estimate divided by rolling expected estimate; zero-opportunity windows are shown as no value.");
-    alpenglow_rate;
-    "percent"; 0;
-    [{"color": "red", "value": null}, {"color": "yellow", "value": 80}, {"color": "green", "value": 95}]
-  )
-  | .gridPos = {"h": 4, "w": 6, "x": 0, "y": 55}
-  | .fieldConfig.defaults.max = 100;
-
-def observed_counts_panel:
-  stat_panel(
-    169; "Alpenglow vote counts — last 10 minutes";
-    (alpenglow_disclosure + ". Display-rounded rolling estimates account for increase() extrapolation at window boundaries.");
-    ("round(" + alpenglow_included_increase + ")");
-    "none"; 8;
-    [{"color": "green", "value": null}]
-  )
-  | .gridPos = {"h": 4, "w": 12, "x": 6, "y": 55}
-  | .targets = [
-      target("A"; ("round(" + alpenglow_included_increase + ")"); "Included"),
-      target("B"; ("round(" + alpenglow_expected_increase + ")"); "Estimated possible"),
-      target("C"; ("round(" + alpenglow_missed_increase + ")"); "Estimated missed")
-    ];
-
-def observed_inclusion_panel:
-  {
-    "datasource": datasource,
-    "description": (alpenglow_disclosure + ". Rolling ten-minute inclusion percentage; periods with zero estimated opportunities are omitted."),
-    "fieldConfig": {
-      "defaults": {
-        "color": {"mode": "palette-classic"},
-        "custom": {"drawStyle": "line", "fillOpacity": 15, "lineWidth": 1, "spanNulls": false},
-        "decimals": 2,
-        "mappings": [],
-        "min": 0,
-        "max": 100,
-        "noValue": "No vote opportunities in the last 10 minutes",
-        "unit": "percent"
-      },
-      "overrides": []
-    },
-    "gridPos": {"h": 8, "w": 24, "x": 0, "y": 59},
-    "id": 171,
-    "interval": "$inter",
-    "maxDataPoints": 1200,
-    "options": {
-      "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "right", "showLegend": true},
-      "tooltip": {"mode": "multi", "sort": "desc"}
-    },
-    "targets": [target("A"; alpenglow_rate; "Inclusion rate")],
-    "title": "Alpenglow inclusion rate history",
-    "transparent": true,
-    "type": "timeseries"
-  };
-
-def alpenglow_status_expression:
-  ("alpenglow_observed_ready" + alpenglow_selector) as $ready
-  | ("time() - timestamp(alpenglow_observed_observed_slot" + alpenglow_selector + ")") as $age
-  | alpenglow_expected_increase as $expected
-  | (
-      "((0 * ((" + $age + ") > 5)) + 4)"
-      + " or on(cluster,genesis,consensus,pubkey,vote_account,schema) ((0 * ((" + $ready + " == 1) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((" + $age + ") <= 5) and on(cluster,genesis,consensus,pubkey,vote_account,schema) (" + $expected + " == 0))) + 3)"
-      + " or on(cluster,genesis,consensus,pubkey,vote_account,schema) ((0 * ((" + $ready + " == 1) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((" + $age + ") <= 5) and on(cluster,genesis,consensus,pubkey,vote_account,schema) (" + $expected + " > 0))) + 2)"
-      + " or on(cluster,genesis,consensus,pubkey,vote_account,schema) (((0 * ((" + $ready + " == 1) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((" + $age + ") <= 5))) + 2) unless on(cluster,genesis,consensus,pubkey,vote_account,schema) " + $expected + ")"
-      + " or on(cluster,genesis,consensus,pubkey,vote_account,schema) ((0 * ((" + $ready + " == 0) and on(cluster,genesis,consensus,pubkey,vote_account,schema) ((" + $age + ") <= 5))) + 1)"
-    );
-
-def observed_status_panel:
-  ("alpenglow_observed_ready" + alpenglow_selector) as $ready
-  | ("time() - timestamp(alpenglow_observed_observed_slot" + alpenglow_selector + ")") as $age
-  | alpenglow_expected_increase as $expected
-  | alpenglow_status_expression as $status
-  | {
-    "datasource": datasource,
-    "description": (alpenglow_disclosure + ". Uses the latest ready value and actual sample timestamp; samples older than five seconds are stale."),
-    "fieldConfig": {
-      "defaults": {
-        "color": {"mode": "thresholds"},
-        "decimals": 0,
-        "mappings": [{
-          "options": {
-            "1": {"color": "orange", "index": 0, "text": "Collecting / latest gap unattributed"},
-            "2": {"color": "green", "index": 1, "text": "Current gap attributed"},
-            "3": {"color": "blue", "index": 2, "text": "No vote opportunities in the last 10 minutes"},
-            "4": {"color": "red", "index": 3, "text": "Stale — last sample older than 5 seconds"}
-          },
-          "type": "value"
-        }],
-        "noValue": "No recent samples",
-        "thresholds": {"mode": "absolute", "steps": [{"color": "orange", "value": null}]},
-        "unit": "none"
-      },
-      "overrides": []
-    },
-    "gridPos": {"h": 4, "w": 6, "x": 18, "y": 55},
-    "id": 170,
-    "interval": "2s",
-    "maxDataPoints": 1,
-    "options": {
-      "colorMode": "background",
-      "graphMode": "none",
-      "justifyMode": "auto",
-      "orientation": "horizontal",
-      "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
-      "textMode": "value_and_name"
-    },
-    "pluginVersion": "9.2.3",
-    "targets": [
-      (target("A"; $ready; "Ready") | .hide = true),
-      (target("B"; $age; "Sample age") | .hide = true),
-      (target("C"; $expected; "Estimated opportunities") | .hide = true),
-      target("D"; $status; "Collection status")
-    ],
-    "title": "Alpenglow collection status",
-    "transparent": true,
-    "type": "stat"
-  };
-
-def normalize_panel_queries:
-  if (.type == "stat" or .type == "gauge" or .type == "bargauge") then
-    .maxDataPoints = 1
-    | .targets |= map(.instant = true | .range = false)
-    | .fieldConfig.defaults.noValue = (
-        if .id == 168 then "No vote opportunities in the last 10 minutes"
-        elif .id == 169 or .id == 170 then "No recent samples"
-        else "No recent data"
-        end
-      )
-    | if .type == "stat" then .options.graphMode = "none" else . end
-  elif .type == "state-timeline" then
-    .interval = "$inter"
-    | .maxDataPoints = 1000
-    | .targets |= map(.instant = false | .range = true)
-  elif .type == "timeseries" then
-    .id as $panel_id
-    | .interval = (if ([56, 144, 75, 61, 126, 121, 76, 4, 122, 57] | index($panel_id)) != null then "$inter" else "30s" end)
-    | .maxDataPoints = 1200
-    | .targets |= map(.instant = false | .range = true)
-  else
-    .
-  end;
-
-def alpenglow_v3_panels:
-  [observed_rate_panel, observed_counts_panel, observed_status_panel, observed_inclusion_panel]
-  | map(normalize_panel_queries);
-
-def alpenglow_v3_canonical:
-  ([.panels[] | select(.id == 168 or .id == 169 or .id == 170 or .id == 171)] | sort_by(.id))
-    == (alpenglow_v3_panels | sort_by(.id))
-  and ([.panels[].id] | index(172) == null);
 
 def mount_filter:
   "^/((boot|dev|proc|run|snap|sys|tmp|var/lib|var/snap|var/tmp)(/.*)?|(home/[^/]+|mnt)/[.].*)$";
@@ -428,9 +257,6 @@ def interface_filter:
 | .templating.list = [$new_cluster_var, $new_genesis_var, $new_pubkey_var, $new_vote_account_var, $new_server_var, $mountpoint_var, $interface_var, $new_interval_var]
 | (any(.panels[]; .id == 160)) as $layout_done
 | (any(.panels[]; .id == 166)) as $health_first_done
-| (any(.panels[]; .id as $id | ([168, 169, 170, 171, 172] | index($id)) != null)) as $observed_inclusion_present
-| (any(.panels[]; .id == 171 and .gridPos == {"h":8,"w":24,"x":0,"y":58})) as $observed_inclusion_legacy_height
-| alpenglow_v3_canonical as $observed_inclusion_done
 | (any(.panels[]; .id == 54 and .targets[0].instant == true and .targets[0].range == false)) as $query_optimization_done
 | (($pubkey_var.label == "Validator / system") and ($server_var.hide == 2)) as $selector_linked
 | .panels |= map(
@@ -573,7 +399,7 @@ def interface_filter:
     elif .id == 165 then
       .gridPos = {"h": 3, "w": 6, "x": 18, "y": 8}
       | .title = "Alpenglow reward accounting"
-      | .description = (alpenglow_disclosure + ". Post-migration epochCredits tuple delta shown in SOL; reward accounting only, not performance.")
+      | .description = "Post-migration epochCredits tuple delta shown in SOL; reward accounting only, not performance."
       | .targets[0].legendFormat = "Alpenglow reward accounting"
       | .targets[0].expr = "nodemonitor_alpenglowRewardAccountingLamports{consensus=\"alpenglow\",pubkey=\"$pubkey\"} / 1e9"
       | .fieldConfig.defaults.unit = "SOL"
@@ -806,20 +632,25 @@ def interface_filter:
       )
     ]
   end
-| if $observed_inclusion_done then
-    .
-  else
-    (if $observed_inclusion_present then
-      .panels |= map(
-        select(.id as $id | ([168, 169, 170, 171, 172] | index($id)) == null)
-        | if $observed_inclusion_legacy_height and .gridPos.y >= 66 then .gridPos.y += 1 else . end
-      )
+| .panels |= map(
+    if (.type == "stat" or .type == "gauge" or .type == "bargauge") then
+      .maxDataPoints = 1
+      | .targets |= map(.instant = true | .range = false)
+      | .fieldConfig.defaults.noValue = "No recent data"
+      | if .type == "stat" then .options.graphMode = "none" else . end
+    elif .type == "state-timeline" then
+      .interval = "$inter"
+      | .maxDataPoints = 1000
+      | .targets |= map(.instant = false | .range = true)
+    elif .type == "timeseries" then
+      .id as $panel_id
+      | .interval = (if ([56, 144, 75, 61, 126, 121, 76, 4, 122, 57] | index($panel_id)) != null then "$inter" else "30s" end)
+      | .maxDataPoints = 1200
+      | .targets |= map(.instant = false | .range = true)
     else
-      .panels |= map(if .gridPos.y >= 55 then .gridPos.y += 12 else . end)
-    end)
-    | .panels += alpenglow_v3_panels
-  end
-| .panels |= map(normalize_panel_queries)
+      .
+    end
+  )
 | .panels |= sort_by(.gridPos.y, .gridPos.x, .id)
 | walk(
     if type == "object" then
@@ -850,7 +681,7 @@ def interface_filter:
     {"type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0"}
   ]
 | .description = "Solana validator and host health dashboard maintained by Stakeconomy.com. Links each validator identity to its reporting system host and supports dynamic mounts, interfaces, and aligned software/status timelines."
-| .refresh = "5s"
-| .timepicker.refresh_intervals = ["5s", "10s", "30s", "1m", "2m", "5m", "15m", "30m", "1h"]
+| .refresh = "1m"
+| .timepicker.refresh_intervals = ["1m", "2m", "5m", "15m", "30m", "1h"]
 | .annotations.list |= map(.enable = false)
 | .version = ((.version // 0) + (if ($layout_done and $query_optimization_done and $selector_linked) then 0 else 1 end))

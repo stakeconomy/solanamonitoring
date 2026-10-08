@@ -1,10 +1,10 @@
 # This example assumes Telegraf runs as its unprivileged service user and has
-# the two exact sudo rules documented in README.md and docs/installation.md.
+# one narrow sudo rule permitting monitor.sh to run as the validator user.
 # Replace the hostname, validator user, paths, and RPC URL. Keep the output URL
 # when publishing to the Stakeconomy community dashboard.
 
 [agent]
-  hostname = "validator-community-host"
+  hostname = "mynode-mainnet"
   interval = "15s"
   flush_interval = "15s"
   collection_jitter = "2s"
@@ -63,21 +63,9 @@
   fieldpass = ["context_switches"]
 
 [[inputs.exec]]
-  # Legacy schema-v2 collector. Keep this one-minute input during the v3 shadow.
   commands = ["/usr/bin/sudo -n -H -u VALIDATOR_USER -- /home/VALIDATOR_USER/solanamonitoring/monitor.sh --rpc-url http://127.0.0.1:8899 --rpc-timeout 20 --price-timeout 3"]
   interval = "1m"
   timeout = "1m"
-  data_format = "influx"
-
-[[inputs.exec]]
-  # Schema-v3 Alpenglow collector. Replace both public-key placeholders with
-  # this validator's fixed identity and vote account before installation.
-  # Enable only after RPC proves the exact Testnet genesis and Alpenglow;
-  # Mainnet and Tower validators retain only the legacy input above.
-  commands = ["/usr/bin/sudo -n -H -u VALIDATOR_USER -- /home/VALIDATOR_USER/solanamonitoring/scripts/alpenglow-observed-vote-inclusion-v3.sh --rpc-url http://127.0.0.1:8899 --identity VALIDATOR_IDENTITY --vote-account VALIDATOR_VOTE_ACCOUNT --state /home/VALIDATOR_USER/.config/solana/alpenglow-observed-vote-inclusion-v3.json --rpc-timeout 0.7 --reference-count 8 --rate-samples 20"]
-  interval = "2s"
-  collection_jitter = "0s"
-  timeout = "10s"
   data_format = "influx"
 
 [[outputs.influxdb]]
@@ -86,6 +74,4 @@
   database = "metricsdb"
   urls = ["http://metrics.stakeconomy.com:8086"]
   timeout = "5s"
-  flush_interval = "2s"
-  flush_jitter = "0s"
   skip_database_creation = true

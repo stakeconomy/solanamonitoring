@@ -1,8 +1,0 @@
-{
-  "jsonrpc": "2.0",
-  "id": "alpenglowObservedLeaders",
-  "result": {
-    "8SQEcP4FaYQySktNQeyxF3w8pvArx3oMEh7fPrzkN9pu": [15],
-    "CurrentValidator11111111111111111111111111111": [15]
-  }
-}
