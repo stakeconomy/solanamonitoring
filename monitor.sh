@@ -212,7 +212,7 @@ load_vx_fields() {
     *) return ;;
   esac
   [[ "$vx_enabled" == 1 && "$consensus" == alpenglow ]] || return
-  vx_fields=',vxEnabled=1i,vxApiUp=0i,vxDataFresh=0i'
+  vx_fields=',vxEnabled=1i,vxApiUp=0i,vxDataFresh=0i,vxNextEpochAvailable=0i'
   # A missing RPC epoch must never select an arbitrary API row, including the
   # next-epoch admission-only row. Also verify the vote/identity association.
   jq -e 'any(.[]; .id == "epochInfo" and .error == null and
@@ -232,6 +232,7 @@ load_vx_fields() {
     def uint: type == "number" and . >= 0 and . <= 9007199254740991 and floor == .;
     def intfield($name; $value): "\($name)=\($value)i";
     if type != "array" then error("expected epoch array") else . end |
+    [.[] | select(.epoch == ($epoch + 1))] as $next |
     [.[] | select(.epoch == $epoch)] |
     if length != 1 then error("missing or duplicate current epoch") else .[0] end |
     . as $r |
@@ -247,6 +248,10 @@ load_vx_fields() {
       intfield("vxEpoch"; $epoch), intfield("vxAdmitted"; if .admitted then 1 else 0 end),
       intfield("vxComplete"; if .complete then 1 else 0 end),
       intfield("vxMissingFooters"; .missingFooters)] +
+    (if ($next | length) == 1 and ($next[0].admitted | type == "boolean") then
+      ["vxNextEpochAvailable=1i", intfield("vxNextEpoch"; $epoch + 1),
+       intfield("vxNextEpochAdmitted"; if $next[0].admitted then 1 else 0 end)]
+     else ["vxNextEpochAvailable=0i"] end) +
     (if $lag == null then [] else [intfield("vxLastIngestedSlot"; .lastIngestedSlot),
       intfield("vxSlotLag"; ([$lag, 0] | max))] end) +
     (if $fresh and .admitted then
@@ -256,6 +261,15 @@ load_vx_fields() {
        intfield("vxMissedSlots"; .missedSlots)] +
       (if .eligibleSlots > 0 then
         ["vxParticipationPct=\(100 * (.notarizedSlots + .skippedSlots) / .eligibleSlots)"]
+       else [] end) +
+      (if (.rank | uint) then [intfield("vxParticipationRank"; .rank + 1)] else [] end) +
+      (if ([.finalizedCerts, .finalizedSlots, .fastFinalizedSlots] | all(.[]; uint))
+          and .fastFinalizedSlots <= .finalizedSlots and .finalizedSlots <= .finalizedCerts then
+        [intfield("vxFinalizedCerts"; .finalizedCerts),
+         intfield("vxFinalizedSlots"; .finalizedSlots),
+         intfield("vxFastFinalizedSlots"; .fastFinalizedSlots)] +
+        (if .finalizedCerts > 0 then
+          ["vxFastFinalizationPct=\(100 * .fastFinalizedSlots / .finalizedCerts)"] else [] end)
        else [] end) +
       (if (.skippedNotarizedSlots | uint) and .skippedNotarizedSlots <= .skippedSlots then
         [intfield("vxSkipOnBlockSlots"; .skippedNotarizedSlots)] else [] end)
@@ -657,7 +671,7 @@ activated_stake="$(sol_amount "$activated_stake_lamports")"
 identity_balance="$(sol_amount "$identity_balance_lamports")"
 vote_balance="$(sol_amount "$vote_balance_lamports")"
 
-vx_fields=',vxEnabled=0i,vxApiUp=0i,vxDataFresh=0i'
+vx_fields=',vxEnabled=0i,vxApiUp=0i,vxDataFresh=0i,vxNextEpochAvailable=0i'
 load_vx_fields
 
 fields="collectorUp=1i,genesisMatch=1i,status=${status}i,rootSlot=${root_slot}i,lastVote=${last_vote}i"

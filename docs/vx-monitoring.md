@@ -33,7 +33,9 @@ local validator status or suppress the original monitoring fields.
 
 The current epoch comes from the local RPC, never from the last API array item.
 VX can return an admission-only row for the *next* epoch, with null ingestion
-progress and zero counts. That row is not current performance or income.
+progress and zero counts. That row is not current performance or income. It is exposed separately for the
+Next-Epoch Admission card. Missing, duplicate or non-boolean admission records
+remain unknown; explicit false produces a red "Not admitted" warning.
 
 The original `nodemonitor` measurement and schema=2 tags are retained; all new
 fields have the `vx` prefix. Missing, malformed and stale performance/reward
@@ -51,11 +53,16 @@ only when its voting and producer components are present and sum correctly.
 | `vxEligibleSlots` | Slots covered by the source's reward certificates |
 | `vxNotarizedSlots`, `vxSkipVoteSlots`, `vxMissedSlots` | Notarize inclusion, skip inclusion, and absent participation |
 | `vxParticipationPct` | 100 × (notarize + skip) / eligible; absent for zero eligible slots |
+| `vxParticipationRank` | One-based VX competition rank (API rank + 1); ties shared, no inferred percentile |
+| `vxFinalizedCerts`, `vxFinalizedSlots`, `vxFastFinalizedSlots` | Decoded finalization certificates, validator inclusions, and fast-path inclusions |
+| `vxFastFinalizationPct` | 100 × fastFinalizedSlots / finalizedCerts; absent for zero/invalid/missing denominators |
+| `vxNextEpochAvailable`, `vxNextEpoch`, `vxNextEpochAdmitted` | Availability and admission for local RPC epoch + 1, separate from current performance |
 | `vxSkipOnBlockSlots` | Skip inclusions on slots where the cluster produced a block |
 | `vxReward{Voting,Producer,Total,Missed,Unpayable,OnChain}Lamports` | Per-epoch gross reward accounting, described below |
 | `vxReward{Voting,Producer,Total,Missed,Unpayable,OnChain}Available` | Whether each individual reward value is usable |
 
 VX fields are integer gauges except the floating-point participation percentage.
+The rank is a gauge with shared ties; it may refresh less frequently than counts.
 Counts and reward totals reset at epoch boundaries; they are not lifetime
 counters. Do not sum repeated polls or apply an unqualified `rate()` to them.
 
@@ -78,6 +85,38 @@ and missing source data must not become validator misses. The activation epoch
 contains a Tower prefix; use VX's eligible count rather than the full epoch
 length as the denominator. If `vxMissingFooters > 0`, the result is a sample with
 incomplete coverage, not a complete epoch score.
+
+## Four-card overview
+
+The overview groups Consensus Participation (with rank), Fast Finalization,
+Epoch Rewards (Total, Voting, Producer bonus) and Next-Epoch Admission. Source
+health, coverage, missed rewards and the accounting difference remain in the
+diagnostic section underneath. Performance percentages use four decimal places;
+SOL rewards use nine so a one-lamport loss is not formatted as zero.
+
+Fast Finalization is **100 × fastFinalizedSlots / finalizedCerts**. The denominator
+is all decoded finalization certificates, not only fast certificates. VX samples
+certificates carried by leaders; this is an inclusion measure, not validator
+latency, a count of all votes sent, or a claim to reproduce Solcircle's formula.
+The optional counts must satisfy fast <= included <= certificates. Invalid or
+missing counts suppress this metric without losing participation or rewards.
+
+Next-Epoch Admission does not depend on current-epoch admission or current vote
+progress: an ineligible validator can be admitted next epoch. It requires a valid
+API response, an explicit unique next-epoch record, a matching local epoch + 1,
+and a recent matching collection timestamp. API failure and rollover cannot
+reuse an old admission value. Its status is VX-reported, not an independent audit.
+
+A red "Not admitted" status is an operational warning to investigate funding,
+BLS registration and other eligibility conditions. It does not identify VAT as
+the cause. The same card displays the existing local RPC vote-account balance;
+this includes rent reserves and is not a spendable VAT balance. No fixed VAT fee
+or funding threshold is invented, and no automated notification is installed.
+
+"Vote Accuracy" and "Effective Inclusion" are not implemented without verified
+formulas. The raw skip-on-produced-block count remains available diagnostically.
+Cluster medians/percentiles are not inferred from per-validator data; the rank
+comes from the same existing API response, without another request.
 
 ## Rewards and reconciliation
 
@@ -113,7 +152,8 @@ estimates are installed by this integration.
 Run the repository's monitor, dashboard and Telegraf tests. Fixtures cover
 supported cluster routing, next-epoch rows, missing/duplicate epochs, invalid
 counts, source failures, stale and ahead-of-local samples, partial rewards,
-genuine zero rewards, and contradictory totals.
+genuine zero rewards, contradictory totals, finalization denominators, shared
+rank handling and next-epoch admission/unknown/rollover cases.
 
 Compare the current epoch's counts with the validator's VX consensus page.
 Confirm the local `epoch`, `vxEpoch`, source progress and source-health cards.

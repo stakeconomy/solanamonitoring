@@ -258,3 +258,38 @@ for args in '--vx-timeout 0' '--vx-timeout invalid' '--vx-max-slot-lag -1'; do
   fi
 done
 printf '%s\n' 'VX monitor tests passed'
+
+assert_contains "$vx_output" 'vxFastFinalizationPct=99.7'
+assert_contains "$vx_output" 'vxParticipationRank=43i'
+assert_contains "$vx_output" 'vxNextEpochAvailable=1i,vxNextEpoch=1027i,vxNextEpochAdmitted=1i'
+for filter in 'del(.[0].fastFinalizedSlots)' '.[0].fastFinalizedSlots = 1001' \
+    '.[0].finalizedSlots = 1001' '.[0].finalizedCerts = -1' \
+    '.[0].finalizedCerts = 0 | .[0].finalizedSlots = 0 | .[0].fastFinalizedSlots = 0'; do
+  optional="$(run_vx "MOCK_VX_FILTER=$filter")"
+  assert_contains "$optional" 'vxParticipationPct='
+  assert_absent "$optional" 'vxFastFinalizationPct='
+done
+fast_zero="$(run_vx 'MOCK_VX_FILTER=.[0].fastFinalizedSlots = 0')"
+assert_contains "$fast_zero" 'vxFastFinalizationPct=0'
+for filter in '[.[0]]' '. + [.[1]]' '.[1].admitted = null' '.[1].epoch = 1028'; do
+  unknown="$(run_vx "MOCK_VX_FILTER=$filter")"
+  assert_contains "$unknown" 'vxNextEpochAvailable=0i'
+  assert_absent "$unknown" 'vxNextEpochAdmitted='
+  assert_contains "$unknown" 'vxParticipationPct='
+done
+not_next="$(run_vx 'MOCK_VX_FILTER=.[1].admitted = false')"
+assert_contains "$not_next" 'vxNextEpochAvailable=1i,vxNextEpoch=1027i,vxNextEpochAdmitted=0i'
+current_ineligible="$(run_vx 'MOCK_VX_FILTER=.[0].admitted = false')"
+assert_contains "$current_ineligible" 'vxNextEpochAdmitted=1i'
+assert_absent "$current_ineligible" 'vxFastFinalizationPct='
+assert_absent "$failed" 'vxNextEpochAdmitted='
+assert_contains "$failed" 'vxNextEpochAvailable=0i'
+rollover="$(run_vx 'MOCK_BATCH_FILTER=map(if .id == "epochInfo" then .result.epoch = 1027 else . end)' 'MOCK_VX_FILTER=. + [(.[1] | .epoch = 1028 | .admitted = false)]')"
+assert_contains "$rollover" 'vxEpoch=1027i'
+assert_contains "$rollover" 'vxNextEpoch=1028i,vxNextEpochAdmitted=0i'
+assert_absent "$rollover" 'vxFastFinalizationPct='
+assert_absent "$rollover" 'vxParticipationPct='
+rank_missing="$(run_vx 'MOCK_VX_FILTER=.[0].rank = null')"
+assert_absent "$rank_missing" 'vxParticipationRank='
+assert_contains "$rank_missing" 'vxParticipationPct='
+printf '%s\n' 'VX finalization and admission tests passed'
