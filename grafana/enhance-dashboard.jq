@@ -673,9 +673,9 @@ def interface_filter:
                   named_target("B"; vx_value("vxParticipationRank"); "Rank (ties shared)")] |
       .fieldConfig.overrides = [{matcher: {id: "byName", options: "Rank (ties shared)"},
         properties: [{id: "unit", value: "none"}, {id: "decimals", value: 0}]}]),
-    (vx_stat(193; "Fast Finalization";
-      "Current epoch: 100 × fastFinalizedSlots / finalizedCerts from VX. Denominator includes all decoded finalization certificates, not just fast certificates. Leader-sampled certificate inclusion, not a direct latency measurement or a claim to reproduce Solcircle’s formula. Missing, invalid or zero-denominator data is unknown.";
-      vx_value("vxFastFinalizationPct"); "percent"; 6; $y) | .gridPos.h = 6),
+    (vx_stat(193; "Fast-Vote Inclusion";
+      "Current epoch: 100 × fastFinalizedSlots / finalizedCerts from VX. Denominator includes all decoded finalization certificates, not just fast certificates. Leader-sampled certificate inclusion, not a direct latency measurement. Solcircle FAST divides by fast certificates only; this metric divides by all decoded certificates and is not comparable to FAST. Missing, invalid or zero-denominator data is unknown.";
+      vx_value("vxFastVoteInclusionPct"); "percent"; 6; $y) | .gridPos.h = 6),
     (vx_stat(187; "Epoch Rewards";
       "VX-calculated gross cumulative SOL this epoch. Total = Voting + Producer bonus, checked for consistency. Before commission allocation to validator/stakers, excluding transaction fees and MEV. Not confirmed net income. Missing components remain unknown; the accounting comparison is below.";
       vx_reward("Total"); "SOL"; 12; $y) |

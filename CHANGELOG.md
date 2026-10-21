@@ -5,7 +5,7 @@
 ### Collector
 
 - Adds optional VX certificate participation and gross epoch reward totals within the existing collector, with bounded requests, exact cluster routing, current-epoch selection and explicit data availability.
-- Adds a four-card VX overview with consensus participation/rank, fast-finalization certificate inclusion, grouped epoch rewards and next-epoch admission, with source freshness/coverage and the unresolved VX/on-chain accounting difference below.
+- Adds a four-card VX overview with consensus participation/rank, fast-vote inclusion over all finalization certificates, grouped epoch rewards and next-epoch admission, with source freshness/coverage and the unresolved VX/on-chain accounting difference below.
 
 - Added schema-v2 `cluster`, `genesis`, `consensus`, `pubkey`, and `vote_account` tags, preventing shared-database mainnet/testnet collisions.
 - Detects Tower versus Alpenglow with `getAgGenesisCert`; Tower credit-efficiency fields are deliberately omitted for Alpenglow.

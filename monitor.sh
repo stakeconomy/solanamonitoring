@@ -269,7 +269,7 @@ load_vx_fields() {
          intfield("vxFinalizedSlots"; .finalizedSlots),
          intfield("vxFastFinalizedSlots"; .fastFinalizedSlots)] +
         (if .finalizedCerts > 0 then
-          ["vxFastFinalizationPct=\(100 * .fastFinalizedSlots / .finalizedCerts)"] else [] end)
+          ["vxFastVoteInclusionPct=\(100 * .fastFinalizedSlots / .finalizedCerts)"] else [] end)
        else [] end) +
       (if (.skippedNotarizedSlots | uint) and .skippedNotarizedSlots <= .skippedSlots then
         [intfield("vxSkipOnBlockSlots"; .skippedNotarizedSlots)] else [] end)

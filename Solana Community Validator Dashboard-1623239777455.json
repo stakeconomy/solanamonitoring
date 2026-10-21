@@ -5867,7 +5867,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "Current epoch: 100 × fastFinalizedSlots / finalizedCerts from VX. Denominator includes all decoded finalization certificates, not just fast certificates. Leader-sampled certificate inclusion, not a direct latency measurement or a claim to reproduce Solcircle’s formula. Missing, invalid or zero-denominator data is unknown.",
+      "description": "Current epoch: 100 × fastFinalizedSlots / finalizedCerts from VX. Denominator includes all decoded finalization certificates, not just fast certificates. Leader-sampled certificate inclusion, not a direct latency measurement. Solcircle FAST divides by fast certificates only; this metric divides by all decoded certificates and is not comparable to FAST. Missing, invalid or zero-denominator data is unknown.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -5919,15 +5919,15 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodemonitor_vxFastFinalizationPct{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} and (timestamp(nodemonitor_vxFastFinalizationPct{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) > time() - 150) and (nodemonitor_vxDataFresh{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (nodemonitor_vxAdmitted{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (nodemonitor_vxEpoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == nodemonitor_epoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) and (timestamp(nodemonitor_vxFastFinalizationPct{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) == timestamp(nodemonitor_vxDataFresh{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}))",
+          "expr": "nodemonitor_vxFastVoteInclusionPct{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} and (timestamp(nodemonitor_vxFastVoteInclusionPct{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) > time() - 150) and (nodemonitor_vxDataFresh{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (nodemonitor_vxAdmitted{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (nodemonitor_vxEpoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == nodemonitor_epoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) and (timestamp(nodemonitor_vxFastVoteInclusionPct{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) == timestamp(nodemonitor_vxDataFresh{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}))",
           "hide": false,
-          "legendFormat": "Fast Finalization",
+          "legendFormat": "Fast-Vote Inclusion",
           "range": false,
           "refId": "A",
           "instant": true
         }
       ],
-      "title": "Fast Finalization",
+      "title": "Fast-Vote Inclusion",
       "transparent": true,
       "type": "stat",
       "maxDataPoints": 1

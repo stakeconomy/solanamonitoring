@@ -268,7 +268,7 @@ printf '%s\n' 'VX dashboard tests passed'
 jq -e '
   [.panels[] | select(.id == 181 or .id == 193 or .id == 187 or .id == 194)] as $overview |
   ($overview | length) == 4 and ([$overview[].gridPos.y] | unique | length) == 1 and
-  ([$overview[].title] | sort) == (["Consensus Participation", "Fast Finalization", "Epoch Rewards", "Next-Epoch Admission"] | sort) and
+  ([$overview[].title] | sort) == (["Consensus Participation", "Fast-Vote Inclusion", "Epoch Rewards", "Next-Epoch Admission"] | sort) and
   any($overview[]; .id == 187 and ([.targets[].legendFormat] == ["Total", "Voting", "Producer bonus"]) and .fieldConfig.defaults.decimals == 9) and
   any($overview[]; .id == 193 and .fieldConfig.defaults.decimals == 4 and (.description | contains("not a direct latency"))) and
   any($overview[]; .id == 194 and (.targets[0].expr | contains("vxNextEpochAvailable")) and (.targets[0].expr | contains(" + 1")) and ((.targets[0].expr | contains("vxDataFresh")) | not)) and

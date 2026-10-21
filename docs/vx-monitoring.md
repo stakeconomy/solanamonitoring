@@ -55,7 +55,7 @@ only when its voting and producer components are present and sum correctly.
 | `vxParticipationPct` | 100 × (notarize + skip) / eligible; absent for zero eligible slots |
 | `vxParticipationRank` | One-based VX competition rank (API rank + 1); ties shared, no inferred percentile |
 | `vxFinalizedCerts`, `vxFinalizedSlots`, `vxFastFinalizedSlots` | Decoded finalization certificates, validator inclusions, and fast-path inclusions |
-| `vxFastFinalizationPct` | 100 × fastFinalizedSlots / finalizedCerts; absent for zero/invalid/missing denominators |
+| `vxFastVoteInclusionPct` | 100 × fastFinalizedSlots / finalizedCerts; absent for zero/invalid/missing denominators |
 | `vxNextEpochAvailable`, `vxNextEpoch`, `vxNextEpochAdmitted` | Availability and admission for local RPC epoch + 1, separate from current performance |
 | `vxSkipOnBlockSlots` | Skip inclusions on slots where the cluster produced a block |
 | `vxReward{Voting,Producer,Total,Missed,Unpayable,OnChain}Lamports` | Per-epoch gross reward accounting, described below |
@@ -88,13 +88,13 @@ incomplete coverage, not a complete epoch score.
 
 ## Four-card overview
 
-The overview groups Consensus Participation (with rank), Fast Finalization,
+The overview groups Consensus Participation (with rank), Fast-Vote Inclusion,
 Epoch Rewards (Total, Voting, Producer bonus) and Next-Epoch Admission. Source
 health, coverage, missed rewards and the accounting difference remain in the
 diagnostic section underneath. Performance percentages use four decimal places;
 SOL rewards use nine so a one-lamport loss is not formatted as zero.
 
-Fast Finalization is **100 × fastFinalizedSlots / finalizedCerts**. The denominator
+Fast-Vote Inclusion is **100 × fastFinalizedSlots / finalizedCerts**. The denominator
 is all decoded finalization certificates, not only fast certificates. VX samples
 certificates carried by leaders; this is an inclusion measure, not validator
 latency, a count of all votes sent, or a claim to reproduce Solcircle's formula.
@@ -113,8 +113,26 @@ the cause. The same card displays the existing local RPC vote-account balance;
 this includes rent reserves and is not a spendable VAT balance. No fixed VAT fee
 or funding threshold is invented, and no automated notification is installed.
 
-"Vote Accuracy" and "Effective Inclusion" are not implemented without verified
-formulas. The raw skip-on-produced-block count remains available diagnostically.
+The supplied Solcircle tooltips clarify that FAST divides by **fast certificates
+only**. VX documents `finalizedCerts` as all decoded certificates and does not
+expose a fast-only certificate denominator in `/epochs/participation`. Our field
+is therefore named `vxFastVoteInclusionPct`, and its card Fast-Vote Inclusion;
+it must not be compared directly with Solcircle FAST. Never substitute the
+validator-specific `fastFinalizedSlots` as the cluster denominator.
+
+Solcircle defines Vote Accuracy as votes matching final slot outcomes / votes
+cast. VX provides included-vote counts and `skippedNotarizedSlots` (skip votes on
+slots with blocks), not a separately documented complete vote/outcome accuracy
+measure. The raw skip-on-produced-block count remains available; no claim of
+an exact Solcircle accuracy reproduction is made.
+
+VX separately documents producer `effectiveInclusion` via `/epochs/production`:
+the average included stake share over payable leader slots, with the producer's
+skipped slots counting zero and warehouse gaps excluded. This concerns collecting
+other validators' votes as leader, unlike our own vote participation. It is not
+implemented here because it requires another endpoint. The supplied screenshots
+do not include Solcircle's Effective Inclusion tooltip.
+
 Cluster medians/percentiles are not inferred from per-validator data; the rank
 comes from the same existing API response, without another request.
 
