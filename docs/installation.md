@@ -1,6 +1,6 @@
 # Migrate to the Stakeconomy community monitor
 
-This guide upgrades an existing validator to `monitor.sh` v0.15 and the optimized Telegraf profile used by the public [Stakeconomy dashboard](https://metrics.stakeconomy.com/). It does not install a private monitoring stack.
+This guide upgrades an existing validator to the unreleased `monitor.sh` v0.15 code and the optimized Telegraf profile used by the public [Stakeconomy dashboard](https://metrics.stakeconomy.com/). It does not install a private monitoring stack.
 
 The examples assume:
 
@@ -29,15 +29,22 @@ Do not remove the backups until the new collector has run successfully for at le
 
 ## 2. Update and test `monitor.sh`
 
-Fetch the release as the account that owns the repository:
+Version 0.15.0 is still marked unreleased in [CHANGELOG.md](../CHANGELOG.md), and no `v0.15.0` tag or GitHub release is published. Do not check out that tag. This guide pins commit [`73e76070ec194065c496ff2e9148622b168cefb8`](https://github.com/stakeconomy/solanamonitoring/commit/73e76070ec194065c496ff2e9148622b168cefb8) from 8 October 2026, which reverted the October 7 Alpenglow monitoring work and passed the [tests workflow](https://github.com/stakeconomy/solanamonitoring/actions/runs/37765265227). This is an unreleased source snapshot, not a stable release.
+
+Fetch `main` and inspect local changes as the account that owns the repository:
 
 ```bash
-sudo -u solana git -C /home/solana/solanamonitoring fetch --tags origin
+sudo -u solana git -C /home/solana/solanamonitoring fetch origin main
 sudo -u solana git -C /home/solana/solanamonitoring status --short
-sudo -u solana git -C /home/solana/solanamonitoring checkout v0.15.0
 ```
 
-Stop if `status --short` reports local changes. Preserve or move those changes before checking out the release; do not force-reset a validator checkout.
+Stop if `status --short` reports local changes. Preserve or move those changes before checking out the snapshot; do not force-reset a validator checkout.
+
+Only after the working tree is clean, check out the pinned commit:
+
+```bash
+sudo -u solana git -C /home/solana/solanamonitoring checkout --detach 73e76070ec194065c496ff2e9148622b168cefb8
+```
 
 Run the regression test and then a real collection:
 
@@ -50,7 +57,7 @@ sudo -u solana /home/solana/solanamonitoring/monitor.sh \
   --price-timeout 3
 ```
 
-The real collection must emit exactly one `nodemonitor,...` line. A successful line normally contains `status=0i`, a non-zero `epochEnds`, and current validator values. `solanaPrice=0` is allowed when the external price request times out.
+The real collection must emit exactly one line beginning with `nodemonitor,cluster=` and include the `cluster`, `genesis`, `consensus`, `pubkey`, `vote_account`, and `schema=2` tags. A successful line normally contains `status=0i`, a non-zero `epochEnds`, and current validator values. `solanaPrice=0` is allowed when the external price request times out.
 
 ## 3. Restrict Telegraf's sudo access
 
@@ -147,9 +154,15 @@ Check the journal after at least one collector interval:
 sudo journalctl -u telegraf --since '-5 minutes' --no-pager
 ```
 
-There should be no `inputs.exec` parsing, timeout, sudo, or output errors. Open <https://metrics.stakeconomy.com/>, select the validator identity and system hostname, and confirm fresh status, epoch, skip-rate, CPU, memory, filesystem, and network values.
+There should be no `inputs.exec` parsing, timeout, sudo, or output errors. Open <https://metrics.stakeconomy.com/> and select, in order:
 
-Because validator identities and system hosts are independent selectors, select both explicitly after migration.
+1. **Cluster** and the exact **Genesis** for the validator's network.
+2. **Validator / system** for the validator identity.
+3. **Vote account** for that identity.
+
+The hidden **System host** variable is derived automatically from the newest collector sample for that cluster, genesis, identity, and vote account in the last 24 hours. There is no separate host selection. Choose the relevant **Mount point** and **Network interface** values, then confirm fresh status, epoch, scheduled-slot production, CPU, memory, filesystem, and network values.
+
+The current dashboard uses schema-v2 tagged series. Untagged historical data is legacy-unclassified and excluded from normal cluster-scoped views; do not assign it retrospectively from a pubkey.
 
 ## Epoch ETA when local samples are unavailable
 
@@ -169,4 +182,4 @@ sudo cp /etc/telegraf/telegraf.conf.pre-v015 \
 sudo systemctl restart telegraf
 ```
 
-The v0.15 collector retains the existing `nodemonitor` measurement and field names, so rollout and rollback do not require a database migration.
+The v0.15 collector retains the `nodemonitor` measurement but writes schema-v2 tagged series. Rollout and rollback do not require rewriting stored data. If the restored collector emits legacy untagged series, the current cluster-scoped dashboard will not show those new samples; retain a compatible dashboard for that rollback case. Keep the existing schema-v2 data and do not relabel legacy history from a pubkey.
