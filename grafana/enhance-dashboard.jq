@@ -63,6 +63,25 @@ def stat_panel($id; $title; $description; $expr; $unit; $x; $thresholds):
     "type": "stat"
   };
 
+# Every VX value must belong to this collection and the RPC current epoch.
+# This also prevents Prometheus lookback from resurrecting omitted values.
+def vx_metric($field): "nodemonitor_" + $field + "{consensus=\"alpenglow\",pubkey=\"$pubkey\"}";
+def vx_recent($field):
+  vx_metric($field) + " and (timestamp(" + vx_metric($field) + ") > time() - 150)";
+def vx_value($field):
+  vx_recent($field) + " and (" + vx_metric("vxDataFresh") + " == 1)" +
+  " and (" + vx_metric("vxAdmitted") + " == 1)" +
+  " and (" + vx_metric("vxEpoch") + " == " + vx_metric("epoch") + ")" +
+  " and (timestamp(" + vx_metric($field) + ") == timestamp(" + vx_metric("vxDataFresh") + "))";
+def vx_reward($kind):
+  "(" + vx_value("vxReward" + $kind + "Lamports") +
+  " and (" + vx_metric("vxReward" + $kind + "Available") + " == 1)) / 1e9";
+def vx_stat($id; $title; $desc; $expr; $unit; $x; $y):
+  stat_panel($id; $title; $desc; $expr; $unit; $x;
+    [{"color": "blue", "value": null}]) |
+  .gridPos = {h: 4, w: 6, x: $x, y: $y} |
+  .fieldConfig.defaults.decimals = (if $unit == "percent" then 4 elif $unit == "SOL" then 6 else 0 end);
+
 def timeline_panel($id; $title; $description; $expr; $x; $mappings):
   {
     "datasource": datasource,
@@ -630,6 +649,52 @@ def interface_filter:
           [{"color": "green", "value": null}, {"color": "yellow", "value": 8}, {"color": "red", "value": 32}]
         ) | .gridPos = {"h": 2, "w": 3, "x": 3, "y": 1}
       )
+    ]
+  end
+| if any(.panels[]; .id == 180) then . else
+    ([.panels[].gridPos | .y + .h] | max) as $bottom |
+    ($bottom + 1) as $y |
+    .panels += [
+      {id: 180, type: "row", title: "Alpenglow participation and gross rewards — VX",
+       collapsed: false, panels: [], gridPos: {h: 1, w: 24, x: 0, y: $bottom}},
+      vx_stat(181; "VX certificate participation";
+        "Current epoch: notarize plus skip inclusions / eligible slots. Skip votes count as participation. This is certificate inclusion, not proof of all votes sent. Missing footers reduce coverage; stale or absent data is hidden.";
+        vx_value("vxParticipationPct"); "percent"; 0; $y),
+      vx_stat(182; "VX missed participations";
+        "Current epoch eligible slots absent from both reward bitmaps. Does not prove the validator was offline; the producer may have omitted its vote. Unpayable slots and missing source data are excluded.";
+        vx_value("vxMissedSlots"); "short"; 6; $y),
+      (vx_stat(183; "VX data fresh";
+        "1: a valid current-epoch sample within the configured local slot difference (default 600). 0: failed, missing, stale or disabled. Collector samples older than 150 seconds are hidden. Coverage is reported separately.";
+        vx_recent("vxDataFresh"); "none"; 12; $y) |
+        .fieldConfig.defaults.mappings = [{type: "value", options: {"0": {text: "Unavailable / stale", color: "red"}, "1": {text: "Fresh", color: "green"}}}]),
+      vx_stat(184; "VX missing footers";
+        "Current epoch source coverage gaps. Nonzero means participation is measured on incomplete coverage; it must not be treated as a complete epoch score.";
+        vx_value("vxMissingFooters"); "short"; 18; $y),
+      vx_stat(185; "VX voting rewards — epoch";
+        "VX-calculated gross SOL from reward certificate inclusion in the current epoch, cumulative to the ingested slot. Before validator/staker commission allocation; excludes transaction fees and MEV. Not confirmed income.";
+        vx_reward("Voting"); "SOL"; 0; ($y + 4)),
+      vx_stat(186; "VX producer rewards — epoch";
+        "VX-calculated gross SOL for including votes as a block producer, cumulative this epoch. Excludes transaction fees and MEV. Missing producer accounting is unknown, never zero.";
+        vx_reward("Producer"); "SOL"; 6; ($y + 4)),
+      vx_stat(187; "VX total rewards — epoch";
+        "VX-calculated voting plus producer rewards in SOL this epoch. Only shown when both components and their sum are valid. This is gross reward accounting, not wallet receipts or net validator income.";
+        vx_reward("Total"); "SOL"; 12; ($y + 4)),
+      vx_stat(188; "VX minus on-chain accounting";
+        "Diagnostic SOL difference: VX total minus VX-reported onChainLamports. A mismatch is not automatically a loss or fault. The activation epoch and the eight-slot reward/footer epoch boundary need reconciliation; equality alone is not independent verification.";
+        "(" + vx_reward("Total") + ") - (" + vx_reward("OnChain") + ")";
+        "SOL"; 18; ($y + 4)),
+      vx_stat(189; "VX source lag";
+        "Local RPC absolute slot minus VX last ingested reward slot, floored at zero. The source aggregates roughly every 25 seconds; this collector polls once per minute. A source more than the configured tolerance ahead is also rejected.";
+        vx_recent("vxSlotLag"); "short"; 0; ($y + 8)),
+      vx_stat(190; "VX missed rewards — epoch";
+        "VX estimate of gross rewards missed through non-inclusion, in SOL this epoch. Cause is not inferred. Separate from slots that could pay nobody.";
+        vx_reward("Missed"); "SOL"; 6; ($y + 8)),
+      vx_stat(191; "VX unpayable rewards — epoch";
+        "VX estimate for slots that paid nobody, for example a skipped payer block. Not counted as validator misses. Cumulative gross SOL this epoch.";
+        vx_reward("Unpayable"); "SOL"; 12; ($y + 8)),
+      vx_stat(192; "VX participation epoch";
+        "Epoch selected from the local RPC. Next-epoch admission-only rows are never used for current performance or rewards.";
+        vx_value("vxEpoch"); "none"; 18; ($y + 8))
     ]
   end
 | .panels |= map(

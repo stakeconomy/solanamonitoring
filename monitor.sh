@@ -13,6 +13,9 @@ vote_account="${SOLANA_VOTE_ACCOUNT:-}"
 rpc_url="${SOLANA_RPC_URL:-}"
 rpc_timeout="${MONITOR_RPC_TIMEOUT:-20}"
 price_timeout="${MONITOR_PRICE_TIMEOUT:-3}"
+vx_enabled="${MONITOR_VX_ENABLED:-1}"
+vx_timeout="${MONITOR_VX_TIMEOUT:-10}"
+vx_max_slot_lag="${MONITOR_VX_MAX_SLOT_LAG:-600}"
 slot_milliseconds="${MONITOR_SLOT_MILLISECONDS:-}"
 performance_rpc_url="${SOLANA_PERFORMANCE_RPC_URL:-}"
 price_url="${SOLANA_PRICE_URL:-https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd}"
@@ -29,6 +32,9 @@ Options:
   --solana-cli PATH       Path to the solana CLI (identity and epoch-ETA fallback)
   --rpc-timeout SECONDS   RPC request timeout (default: 20)
   --price-timeout SECONDS Price request timeout (default: 3)
+  --no-vx                Disable public VX participation/reward lookup
+  --vx-timeout SECONDS    VX request timeout (positive; default: 10)
+  --vx-max-slot-lag SLOTS Maximum VX/local slot difference (default: 600)
   --performance-rpc-url URL
                           RPC used when local performance samples are empty
   --slot-ms MILLISECONDS  Fallback slot duration when RPC samples are unavailable
@@ -37,7 +43,8 @@ Options:
 The same values can be provided with SOLANA_IDENTITY_PUBKEY,
 SOLANA_VOTE_ACCOUNT, SOLANA_RPC_URL, SOLANA_CLI, MONITOR_RPC_TIMEOUT,
 MONITOR_PRICE_TIMEOUT, SOLANA_PERFORMANCE_RPC_URL, and
-MONITOR_SLOT_MILLISECONDS.
+MONITOR_SLOT_MILLISECONDS. VX also accepts MONITOR_VX_ENABLED (0 or 1),
+MONITOR_VX_TIMEOUT, and MONITOR_VX_MAX_SLOT_LAG.
 EOF
 }
 
@@ -80,6 +87,15 @@ while (($#)); do
       price_timeout="${2:-}"
       shift 2
       ;;
+    --no-vx)
+      vx_enabled=0
+      shift
+      ;;
+    --vx-timeout|--vx-max-slot-lag)
+      require_option_value "$@"
+      if [[ "$1" == --vx-timeout ]]; then vx_timeout="$2"; else vx_max_slot_lag="$2"; fi
+      shift 2
+      ;;
     --performance-rpc-url)
       require_option_value "$@"
       performance_rpc_url="${2:-}"
@@ -108,6 +124,13 @@ if [[ ! "$rpc_timeout" =~ ^[0-9]+([.][0-9]+)?$ || ! "$price_timeout" =~ ^[0-9]+(
 fi
 if [[ -n "$slot_milliseconds" && ! "$slot_milliseconds" =~ ^[1-9][0-9]*$ ]]; then
   printf 'monitor: slot duration must be a positive integer in milliseconds\n' >&2
+  exit 64
+fi
+
+if [[ ! "$vx_enabled" =~ ^[01]$ || ! "$vx_timeout" =~ ^[0-9]+([.][0-9]+)?$ ||
+      ! "$vx_max_slot_lag" =~ ^[1-9][0-9]*$ ]] ||
+   ! awk -v seconds="$vx_timeout" 'BEGIN { exit !(seconds > 0) }'; then
+  printf 'monitor: invalid VX enabled, timeout or maximum slot lag setting\n' >&2
   exit 64
 fi
 
@@ -177,6 +200,83 @@ rpc_call() {
     --header 'Content-Type: application/json' \
     --data "$payload" \
     "$endpoint"
+}
+
+# VX counts certificate inclusion and estimates gross rewards, per epoch.
+# Fixed endpoints are selected by exact local genesis; no custom-cluster fallback.
+load_vx_fields() {
+  local endpoint response parsed
+  case "$genesis_hash" in
+    5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp) endpoint='https://api.vx.tools' ;;
+    4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY) endpoint='https://api.testnet.vx.tools' ;;
+    *) return ;;
+  esac
+  [[ "$vx_enabled" == 1 && "$consensus" == alpenglow ]] || return
+  vx_fields=',vxEnabled=1i,vxApiUp=0i,vxDataFresh=0i'
+  # A missing RPC epoch must never select an arbitrary API row, including the
+  # next-epoch admission-only row. Also verify the vote/identity association.
+  jq -e 'any(.[]; .id == "epochInfo" and .error == null and
+    (.result.epoch | type == "number") and (.result.absoluteSlot | type == "number"))' \
+    >/dev/null 2>&1 <<<"$batch_response" || return
+  jq -e --arg vote "$vote_account" --arg identity "$identity_pubkey" \
+    'any(.result.current[], .result.delinquent[]; .votePubkey == $vote and .nodePubkey == $identity)' \
+    >/dev/null 2>&1 <<<"$vote_response" || return
+  if ! response="$("$curl_bin" --silent --show-error --fail --max-time "$vx_timeout" \
+      --get --data-urlencode "voteKey=$vote_account" --data-urlencode 'limit=1' \
+      "$endpoint/epochs/participation" 2>/dev/null)"; then
+    printf 'monitor: VX request failed; participation/rewards unavailable\n' >&2
+    return
+  fi
+  if ! parsed="$(jq -er --argjson epoch "$epoch" --argjson maxlag "$vx_max_slot_lag" \
+      --argjson localSlot "$(jq -r '[.[] | select(.id == "epochInfo")][0].result.absoluteSlot' <<<"$batch_response")" '
+    def uint: type == "number" and . >= 0 and . <= 9007199254740991 and floor == .;
+    def intfield($name; $value): "\($name)=\($value)i";
+    if type != "array" then error("expected epoch array") else . end |
+    [.[] | select(.epoch == $epoch)] |
+    if length != 1 then error("missing or duplicate current epoch") else .[0] end |
+    . as $r |
+    if ([.eligibleSlots, .notarizedSlots, .skippedSlots, .missedSlots, .missingFooters] | all(.[]; uint))
+      and (.admitted | type == "boolean")
+      and (.complete | type == "boolean")
+      and (.lastIngestedSlot == null or (.lastIngestedSlot | uint))
+      and (.notarizedSlots + .skippedSlots + .missedSlots == .eligibleSlots)
+    then . else error("invalid participation counters") end |
+    (if .lastIngestedSlot == null then null else $localSlot - .lastIngestedSlot end) as $lag |
+    ($lag != null and $lag >= (-$maxlag) and $lag <= $maxlag) as $fresh |
+    ["vxEnabled=1i", "vxApiUp=1i", intfield("vxDataFresh"; if $fresh then 1 else 0 end),
+      intfield("vxEpoch"; $epoch), intfield("vxAdmitted"; if .admitted then 1 else 0 end),
+      intfield("vxComplete"; if .complete then 1 else 0 end),
+      intfield("vxMissingFooters"; .missingFooters)] +
+    (if $lag == null then [] else [intfield("vxLastIngestedSlot"; .lastIngestedSlot),
+      intfield("vxSlotLag"; ([$lag, 0] | max))] end) +
+    (if $fresh and .admitted then
+      [intfield("vxEligibleSlots"; .eligibleSlots),
+       intfield("vxNotarizedSlots"; .notarizedSlots),
+       intfield("vxSkipVoteSlots"; .skippedSlots),
+       intfield("vxMissedSlots"; .missedSlots)] +
+      (if .eligibleSlots > 0 then
+        ["vxParticipationPct=\(100 * (.notarizedSlots + .skippedSlots) / .eligibleSlots)"]
+       else [] end) +
+      (if (.skippedNotarizedSlots | uint) and .skippedNotarizedSlots <= .skippedSlots then
+        [intfield("vxSkipOnBlockSlots"; .skippedNotarizedSlots)] else [] end)
+     else [] end) +
+    ([ ["Voting", "votingLamports"], ["Producer", "producerBonusLamports"],
+       ["Total", "totalLamports"], ["Missed", "missedLamports"],
+       ["Unpayable", "unpayableLamports"], ["OnChain", "onChainLamports"] ] |
+      map(. as [$name, $key] | $r.rewards[$key] as $value |
+        ($fresh and $r.admitted and ($r.eligibleSlots > 0) and ($value | uint) and
+          (if $name == "Total" then
+             ($r.rewards.votingLamports | uint) and ($r.rewards.producerBonusLamports | uint) and
+             $value == ($r.rewards.votingLamports + $r.rewards.producerBonusLamports)
+           else true end)) as $available |
+        [intfield("vxReward\($name)Available"; if $available then 1 else 0 end)] +
+        (if $available then [intfield("vxReward\($name)Lamports"; $value)] else [] end)) | add) |
+    join(",")
+  ' <<<"$response" 2>/dev/null)"; then
+    printf 'monitor: invalid VX response or current epoch unavailable\n' >&2
+    return
+  fi
+  vx_fields=",$parsed"
 }
 
 pct() {
@@ -557,6 +657,9 @@ activated_stake="$(sol_amount "$activated_stake_lamports")"
 identity_balance="$(sol_amount "$identity_balance_lamports")"
 vote_balance="$(sol_amount "$vote_balance_lamports")"
 
+vx_fields=',vxEnabled=0i,vxApiUp=0i,vxDataFresh=0i'
+load_vx_fields
+
 fields="collectorUp=1i,genesisMatch=1i,status=${status}i,rootSlot=${root_slot}i,lastVote=${last_vote}i"
 if [[ "$consensus" == 'tower' ]]; then
   fields+=",credits=${credits}i,validatorCreditsCurrent=${current_credits}i,pctVote=${pct_vote}"
@@ -571,6 +674,7 @@ if ((batch_ok)); then
   fi
   fields+=",leaderSlots=${leader_slots}i,skippedSlots=${skipped_slots}i,pctSkipped=${pct_skipped},pctTotSkipped=${pct_total_skipped},pctSkippedDelta=${pct_skipped_delta}"
 fi
+fields+="$vx_fields"
 fields+=",pctTotDelinquent=${pct_total_delinquent}${price_field},openFiles=${open_files}i,validatorBalance=${identity_balance},validatorVoteBalance=${vote_balance},nodes=${nodes}i,epoch=${epoch}i,pctEpochElapsed=${pct_epoch_elapsed},epochEnds=${epoch_ends}i,tps=${transaction_count}i"
 
 printf 'nodemonitor,cluster=%s,genesis=%s,consensus=%s,pubkey=%s,vote_account=%s,schema=2 %s %s\n' \

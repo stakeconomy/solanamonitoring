@@ -251,3 +251,16 @@ jq -f "$enhancement" "$dashboard" >"$enhanced"
 cmp -s "$dashboard" "$enhanced" || fail 'dashboard enhancement is not idempotent'
 
 printf '%s\n' 'dashboard tests passed'
+
+jq -e '
+  [.panels[] | select(.id >= 181 and .id <= 192)] as $vx |
+  ($vx | length) == 12 and
+  all($vx[]; all(.targets[]; .expr | contains("time() - 150"))) and
+  all($vx[] | select(.id != 183 and .id != 189);
+    all(.targets[]; (.expr | contains("nodemonitor_vxDataFresh")) and
+      (.expr | contains("nodemonitor_vxEpoch")) and
+      (.expr | contains("timestamp(")))) and
+  any($vx[]; .id == 188 and (.targets[0].expr | contains("vxRewardOnChainAvailable"))) and
+  any($vx[]; .id == 187 and (.targets[0].expr | contains("vxRewardTotalAvailable")))
+' "$dashboard" >/dev/null || fail 'VX panels lack current-epoch, availability or freshness guards'
+printf '%s\n' 'VX dashboard tests passed'

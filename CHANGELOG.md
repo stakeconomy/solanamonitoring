@@ -4,6 +4,9 @@
 
 ### Collector
 
+- Adds optional VX certificate participation and gross epoch reward totals within the existing collector, with bounded requests, exact cluster routing, current-epoch selection and explicit data availability.
+- Adds VX dashboard cards for voting/producer rewards, source freshness/coverage and the unresolved VX/on-chain accounting difference.
+
 - Added schema-v2 `cluster`, `genesis`, `consensus`, `pubkey`, and `vote_account` tags, preventing shared-database mainnet/testnet collisions.
 - Detects Tower versus Alpenglow with `getAgGenesisCert`; Tower credit-efficiency fields are deliberately omitted for Alpenglow.
 - Emits `alpenglowRewardAccountingLamports` only for validated Alpenglow post-migration epoch-credit tuples; malformed or migration-marker tuples are omitted.

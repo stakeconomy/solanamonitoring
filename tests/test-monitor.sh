@@ -177,3 +177,84 @@ set -e
 [[ "$argument_status" -eq 64 ]] || fail 'missing option values must return usage status 64'
 
 printf 'monitor tests passed\n'
+
+# VX responses are optional: failures must preserve local validator monitoring.
+run_vx() {
+  env CURL_BIN="$mock_curl" "$@" "$repo_dir/monitor.sh" \
+    --identity "$identity" --rpc-url http://mock-rpc.invalid
+}
+assert_absent() {
+  [[ "$1" != *"$2"* ]] || fail "unexpected field: $2"
+}
+vx_output="$(run_vx MOCK_VX_EXPECT_ENDPOINT=https://api.testnet.vx.tools/epochs/participation)"
+assert_contains "$vx_output" 'vxApiUp=1i,vxDataFresh=1i'
+assert_contains "$vx_output" 'vxEpoch=1026i'
+assert_contains "$vx_output" 'vxParticipationPct=99.9676'
+assert_contains "$vx_output" 'vxMissedSlots=25i'
+assert_contains "$vx_output" 'vxSkipVoteSlots=504i'
+assert_contains "$vx_output" 'vxRewardVotingLamports=2353670667i'
+assert_contains "$vx_output" 'vxRewardProducerLamports=2582028114i'
+assert_contains "$vx_output" 'vxRewardTotalLamports=4935698781i'
+assert_contains "$vx_output" 'vxRewardOnChainLamports=79056i'
+assert_contains "$vx_output" 'vxSlotLag=100i'
+[[ "$(wc -l <<<"$vx_output")" -eq 1 ]] || fail 'VX must remain one Influx record'
+
+vx_mainnet="$(run_vx MOCK_MAINNET_ALPENGLOW=1 MOCK_VX_EXPECT_ENDPOINT=https://api.vx.tools/epochs/participation)"
+assert_contains "$vx_mainnet" 'cluster=mainnet-beta'
+assert_contains "$vx_mainnet" 'vxApiUp=1i'
+for mode in 'MONITOR_VX_ENABLED=0' 'MOCK_MAINNET=1' 'MOCK_UNKNOWN_GENESIS=1'; do
+  disabled="$(run_vx "$mode")"
+  assert_contains "$disabled" 'vxEnabled=0i'
+  assert_absent "$disabled" 'vxParticipationPct='
+done
+for filter in 'null' '[.[1]]' '. + [.[0]]' '.[0].missedSlots = -1' \
+    '.[0].eligibleSlots = 1' '.[0].notarizedSlots = "76663"' \
+    '.[0].missedSlots = 25.5'; do
+  invalid="$(run_vx "MOCK_VX_FILTER=$filter" 2>/dev/null)"
+  assert_contains "$invalid" 'vxApiUp=0i,vxDataFresh=0i'
+  assert_contains "$invalid" 'collectorUp=1i'
+  assert_absent "$invalid" 'vxParticipationPct='
+  assert_absent "$invalid" 'vxRewardVotingLamports='
+done
+failed="$(run_vx MOCK_VX_FAIL=1 2>/dev/null)"
+assert_contains "$failed" 'vxApiUp=0i,vxDataFresh=0i'
+assert_contains "$failed" 'status=0i'
+for slot in 437725000 437728000 null; do
+  stale="$(run_vx "MOCK_VX_FILTER=.[0].lastIngestedSlot = $slot")"
+  assert_contains "$stale" 'vxApiUp=1i,vxDataFresh=0i'
+  assert_absent "$stale" 'vxParticipationPct='
+  assert_absent "$stale" 'vxRewardVotingLamports='
+done
+partial="$(run_vx 'MOCK_VX_FILTER=.[0].rewards.producerBonusLamports = null')"
+assert_contains "$partial" 'vxRewardVotingLamports=2353670667i'
+assert_contains "$partial" 'vxRewardProducerAvailable=0i'
+assert_contains "$partial" 'vxRewardTotalAvailable=0i'
+assert_absent "$partial" 'vxRewardProducerLamports='
+assert_absent "$partial" 'vxRewardTotalLamports='
+zero="$(run_vx 'MOCK_VX_FILTER=.[0].rewards.votingLamports = 0 | .[0].rewards.totalLamports = .[0].rewards.producerBonusLamports')"
+assert_contains "$zero" 'vxRewardVotingAvailable=1i,vxRewardVotingLamports=0i'
+wrong_total="$(run_vx 'MOCK_VX_FILTER=.[0].rewards.totalLamports = 1')"
+assert_contains "$wrong_total" 'vxRewardTotalAvailable=0i'
+assert_absent "$wrong_total" 'vxRewardTotalLamports='
+coverage="$(run_vx 'MOCK_VX_FILTER=.[0].missingFooters = 12')"
+assert_contains "$coverage" 'vxMissingFooters=12i'
+assert_contains "$coverage" 'vxParticipationPct='
+not_admitted="$(run_vx 'MOCK_VX_FILTER=.[0].admitted = false')"
+assert_contains "$not_admitted" 'vxAdmitted=0i'
+assert_absent "$not_admitted" 'vxParticipationPct='
+assert_absent "$not_admitted" 'vxRewardVotingLamports='
+next_epoch="$(run_vx 'MOCK_BATCH_FILTER=map(if .id == "epochInfo" then .result.epoch = 1027 else . end)')"
+assert_contains "$next_epoch" 'vxEpoch=1027i'
+assert_contains "$next_epoch" 'vxDataFresh=0i'
+assert_absent "$next_epoch" 'vxParticipationPct='
+assert_absent "$next_epoch" 'vxRewardVotingLamports='
+no_epoch="$(run_vx 'MOCK_BATCH_FILTER=map(select(.id != "epochInfo"))')"
+assert_contains "$no_epoch" 'vxApiUp=0i,vxDataFresh=0i'
+assert_absent "$no_epoch" 'vxEpoch='
+for args in '--vx-timeout 0' '--vx-timeout invalid' '--vx-max-slot-lag -1'; do
+  read -ra options <<<"$args"
+  if CURL_BIN="$mock_curl" "$repo_dir/monitor.sh" "${options[@]}" >/dev/null 2>&1; then
+    fail "invalid VX options accepted: $args"
+  fi
+done
+printf '%s\n' 'VX monitor tests passed'
