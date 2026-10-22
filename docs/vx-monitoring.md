@@ -1,14 +1,16 @@
 # Alpenglow participation and rewards from VX
 
-The existing `monitor.sh` collector makes one additional bounded HTTP request
+The existing `monitor.sh` collector makes two additional bounded HTTP requests
 per collection (one minute in the supplied Telegraf profile). No extra daemon,
 gRPC connection, database or local state file is required.
 
 VX is a public, external data source. For detected Alpenglow consensus, the
 collector selects `https://api.vx.tools` for the exact mainnet genesis and
 `https://api.testnet.vx.tools` for the exact testnet genesis. Tower, devnet and
-custom clusters do not trigger a VX request. The request contains the public
-vote account and `limit=1` and uses `/epochs/participation`.
+custom clusters do not trigger a VX request. Both requests contain the public
+vote account and `limit=1`: `/epochs/participation` and `/epochs/earnings`.
+Each has its own timeout (default 10 seconds, at most 20 seconds combined).
+Either endpoint can fail independently without suppressing local monitoring.
 
 Reference: https://api.vx.tools/llms.txt (checked 2026-10-21).
 
@@ -19,8 +21,8 @@ continue to work; keep their one-minute interval and timeout. VX aggregates are
 updated approximately every 25 seconds, so polling faster is unnecessary for
 this dashboard.
 
-- `--no-vx` / `MONITOR_VX_ENABLED=0`: disable the lookup.
-- `--vx-timeout 10` / `MONITOR_VX_TIMEOUT`: positive HTTP timeout in seconds.
+- `--no-vx` / `MONITOR_VX_ENABLED=0`: disable both lookups.
+- `--vx-timeout 10` / `MONITOR_VX_TIMEOUT`: positive HTTP timeout in seconds per request.
 - `--vx-max-slot-lag 600` / `MONITOR_VX_MAX_SLOT_LAG`: positive maximum difference
   between local RPC absolute slot and the last ingested VX reward slot. This is
   a slot-based tolerance, not a fixed wall-clock duration. A source ahead by more
@@ -178,3 +180,51 @@ Confirm the local `epoch`, `vxEpoch`, source progress and source-health cards.
 Use `--no-vx` to disable the additional lookup while retaining local monitoring.
 The existing installation guide's backups, least-privilege execution and full
 rollback procedure still apply.
+
+
+## Block revenue and estimated validator income
+
+`/epochs/earnings` is a separate current-epoch snapshot. Select exactly one row
+matching the local RPC epoch and Alpenglow consensus; never use the last row
+blindly. Mainnet and testnet use their respective VX domains. The response has
+no ingestion-slot watermark, so `vxEarningsApiUp=1` means a valid response was
+retrieved, not that the source is independently verified as up to date.
+Dashboard queries require recent collection, matching epoch, availability and
+matching timestamps to prevent old omitted values reappearing via lookback.
+
+All amounts below are cumulative integer lamports (gauge values resetting each
+epoch). Prefix `vxEarnings`, suffix `Lamports`, with a companion `Available`
+flag for each amount:
+
+| Kind | Meaning |
+| --- | --- |
+| `BaseFees` | VX gross base fees |
+| `PriorityFees` | VX gross priority fees |
+| `MevTips` | Gross Jito tips before downstream deductions |
+| `BlockRevenue` | VX validator share of base + priority fees at the separate block-revenue commission |
+| `MevShare` | Estimated validator MEV share at the separate MEV commission |
+| `EstimatedAlpenglow` | Floor of (earnings votingReward + producerBonus) × inflation commission bps / 10000 |
+| `EstimatedTotal` | EstimatedAlpenglow + BlockRevenue + MevShare; unknown unless all three are available |
+
+`vxEarningsEpoch` identifies the row. `vxEarningsInflationCommissionBps`,
+`vxEarningsBlockCommissionBps` and `vxEarningsMevCommissionBps` expose valid
+rates (0..10000). `vxEarningsMevRatePreviousEpoch=1` marks VX using the previous
+epoch MEV rate pending the current one. Missing rates are not assumed to be
+100%; zero tips with a zero share remain a genuine zero even without a rate.
+Missing/invalid components remain unavailable and never produce a partial total.
+
+The estimated total uses one earnings response for all components. It does not
+add the participation endpoint rewards or `voteAccountReward` again. Alpenglow
+producer bonus is subject to inflation commission; ordinary block fees use their
+own commission. Values are provisional: payout rounding, effective rates, lag
+and corrections can change them. MEV share is before block-builder and tip-router
+fees and can overstate final proceeds. VAT, vote fees and server costs are not
+subtracted: this is estimated income before costs, not net profit.
+
+Live checks on 2026-10-22 confirmed mainnet and testnet response schemas. The
+sample mainnet response had all three rates; the testnet response had null rates,
+so its estimated total correctly stays unavailable. A mainnet snapshot with only
+its epoch normalized supplies the earnings test fixture. Endpoint errors,
+missing/duplicate/wrong-epoch rows, malformed optional amounts, missing/out-of-range
+rates, previous-epoch MEV rates, true zeros and independent endpoint failures are
+tested alongside dashboard query guards and transform idempotence.

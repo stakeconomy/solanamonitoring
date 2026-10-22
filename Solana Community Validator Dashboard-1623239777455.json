@@ -6168,6 +6168,338 @@
       "maxDataPoints": 1
     },
     {
+      "id": 197,
+      "type": "row",
+      "title": "Block revenue and estimated validator income — VX",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 129
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Cumulative current-epoch base fees and priority fees reported by VX earnings. Separate from the Alpenglow producer bonus. Excludes MEV. Earnings has no ingestion-slot watermark: a successful fetch does not prove source freshness.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 9,
+          "mappings": [],
+          "noValue": "No recent data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "SOL"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 130
+      },
+      "id": 198,
+      "interval": "1m",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "vertical",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "pluginVersion": "9.2.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "(nodemonitor_vxEarningsBaseFeesLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} and (timestamp(nodemonitor_vxEarningsBaseFeesLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) > time() - 150) and (nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (nodemonitor_vxEarningsEpoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == nodemonitor_epoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) and (nodemonitor_vxEarningsBaseFeesAvailable{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (timestamp(nodemonitor_vxEarningsBaseFeesLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) == timestamp(nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}))) / 1e9",
+          "hide": false,
+          "legendFormat": "Base fees",
+          "range": false,
+          "refId": "A",
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "(nodemonitor_vxEarningsPriorityFeesLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} and (timestamp(nodemonitor_vxEarningsPriorityFeesLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) > time() - 150) and (nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (nodemonitor_vxEarningsEpoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == nodemonitor_epoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) and (nodemonitor_vxEarningsPriorityFeesAvailable{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (timestamp(nodemonitor_vxEarningsPriorityFeesLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) == timestamp(nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}))) / 1e9",
+          "hide": false,
+          "legendFormat": "Priority fees",
+          "range": false,
+          "refId": "B",
+          "instant": true
+        }
+      ],
+      "title": "Block Fees — Gross",
+      "transparent": true,
+      "type": "stat",
+      "maxDataPoints": 1
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "VX-reported validator share of base plus priority fees, using the epoch block-revenue commission. Not the inflation commission. Excludes Alpenglow producer bonus and MEV. Missing rates remain unknown.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 9,
+          "mappings": [],
+          "noValue": "No recent data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "SOL"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 130
+      },
+      "id": 199,
+      "interval": "1m",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "9.2.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "(nodemonitor_vxEarningsBlockRevenueLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} and (timestamp(nodemonitor_vxEarningsBlockRevenueLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) > time() - 150) and (nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (nodemonitor_vxEarningsEpoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == nodemonitor_epoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) and (nodemonitor_vxEarningsBlockRevenueAvailable{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (timestamp(nodemonitor_vxEarningsBlockRevenueLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) == timestamp(nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}))) / 1e9",
+          "hide": false,
+          "legendFormat": "Validator Block Revenue",
+          "range": false,
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "title": "Validator Block Revenue",
+      "transparent": true,
+      "type": "stat",
+      "maxDataPoints": 1
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Gross Jito tips and estimated validator share at the separate MEV commission. VX may use the previous epoch rate until the current rate is available. Before block-builder and tip-router deductions; may overstate final proceeds. Unknown rates stay unknown; genuine zero tips remain zero.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 9,
+          "mappings": [],
+          "noValue": "No recent data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "SOL"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 130
+      },
+      "id": 200,
+      "interval": "1m",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "vertical",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "pluginVersion": "9.2.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "(nodemonitor_vxEarningsMevTipsLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} and (timestamp(nodemonitor_vxEarningsMevTipsLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) > time() - 150) and (nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (nodemonitor_vxEarningsEpoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == nodemonitor_epoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) and (nodemonitor_vxEarningsMevTipsAvailable{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (timestamp(nodemonitor_vxEarningsMevTipsLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) == timestamp(nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}))) / 1e9",
+          "hide": false,
+          "legendFormat": "Gross tips",
+          "range": false,
+          "refId": "A",
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "(nodemonitor_vxEarningsMevShareLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} and (timestamp(nodemonitor_vxEarningsMevShareLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) > time() - 150) and (nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (nodemonitor_vxEarningsEpoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == nodemonitor_epoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) and (nodemonitor_vxEarningsMevShareAvailable{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (timestamp(nodemonitor_vxEarningsMevShareLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) == timestamp(nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}))) / 1e9",
+          "hide": false,
+          "legendFormat": "Estimated validator share",
+          "range": false,
+          "refId": "B",
+          "instant": true
+        }
+      ],
+      "title": "MEV Tips and Estimated Share",
+      "transparent": true,
+      "type": "stat",
+      "maxDataPoints": 1
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Current epoch before VAT and operating costs. Alpenglow estimate = (votingReward + producerBonus) × inflation commission. Total adds validator block-fee share and estimated MEV share from the same earnings response, never the gross producer bonus or voteAccountReward again. All three components must be available. Provisional rates, source lag, payout rounding and MEV deductions can change the result. Not net profit or confirmed payout.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 9,
+          "mappings": [],
+          "noValue": "No recent data",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "SOL"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 130
+      },
+      "id": 201,
+      "interval": "1m",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "vertical",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "pluginVersion": "9.2.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "(nodemonitor_vxEarningsEstimatedTotalLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} and (timestamp(nodemonitor_vxEarningsEstimatedTotalLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) > time() - 150) and (nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (nodemonitor_vxEarningsEpoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == nodemonitor_epoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) and (nodemonitor_vxEarningsEstimatedTotalAvailable{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (timestamp(nodemonitor_vxEarningsEstimatedTotalLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) == timestamp(nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}))) / 1e9",
+          "hide": false,
+          "legendFormat": "Estimated income before costs",
+          "range": false,
+          "refId": "A",
+          "instant": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "(nodemonitor_vxEarningsEstimatedAlpenglowLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} and (timestamp(nodemonitor_vxEarningsEstimatedAlpenglowLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) > time() - 150) and (nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (nodemonitor_vxEarningsEpoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == nodemonitor_epoch{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) and (nodemonitor_vxEarningsEstimatedAlpenglowAvailable{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} == 1) and (timestamp(nodemonitor_vxEarningsEstimatedAlpenglowLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}) == timestamp(nodemonitor_vxEarningsApiUp{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}))) / 1e9",
+          "hide": false,
+          "legendFormat": "Estimated Alpenglow commission",
+          "range": false,
+          "refId": "B",
+          "instant": true
+        }
+      ],
+      "title": "Estimated Validator Income",
+      "transparent": true,
+      "type": "stat",
+      "maxDataPoints": 1
+    },
+    {
       "id": 195,
       "type": "row",
       "title": "Alpenglow diagnostics — VX",
@@ -6177,7 +6509,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 129
+        "y": 136
       }
     },
     {
@@ -6211,7 +6543,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 130
+        "y": 137
       },
       "id": 182,
       "interval": "1m",
@@ -6295,7 +6627,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 130
+        "y": 137
       },
       "id": 183,
       "interval": "1m",
@@ -6365,7 +6697,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 130
+        "y": 137
       },
       "id": 184,
       "interval": "1m",
@@ -6435,7 +6767,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 130
+        "y": 137
       },
       "id": 189,
       "interval": "1m",
@@ -6505,7 +6837,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 134
+        "y": 141
       },
       "id": 190,
       "interval": "1m",
@@ -6575,7 +6907,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 134
+        "y": 141
       },
       "id": 191,
       "interval": "1m",
@@ -6645,7 +6977,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 134
+        "y": 141
       },
       "id": 188,
       "interval": "1m",
@@ -6715,7 +7047,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 134
+        "y": 141
       },
       "id": 196,
       "interval": "1m",

@@ -275,3 +275,19 @@ jq -e '
   all(.panels[] | select(.id >= 180 and .fieldConfig.defaults.unit == "SOL"); .fieldConfig.defaults.decimals == 9)
 ' "$dashboard" >/dev/null || fail 'VX overview grouping, precision or admission guards are incorrect'
 printf '%s\n' 'VX overview tests passed'
+
+jq -e '
+  [.panels[] | select(.id >= 198 and .id <= 201)] as $p |
+  ($p | length) == 4 and
+  all($p[]; .fieldConfig.defaults.decimals == 9 and
+    all(.targets[]; .instant == true and
+      (.expr | contains("vxEarningsApiUp")) and
+      (.expr | contains("vxEarningsEpoch")) and
+      (.expr | contains("Available")) and
+      (.expr | contains("timestamp(")) and
+      (.expr | contains("time() - 150")) and
+      (.expr | contains("cluster=~")) and
+      (.expr | contains("genesis=~")) and
+      (.expr | contains("vote_account=~"))))
+' "$dashboard" >/dev/null || fail 'earnings panels must guard epoch, collection age, availability and identity'
+printf 'VX earnings dashboard tests passed\n'

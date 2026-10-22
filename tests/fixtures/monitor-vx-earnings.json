@@ -1,0 +1,42 @@
+[
+  {
+    "epoch": 1026,
+    "startTime": 1792589765,
+    "endTime": null,
+    "consensus": "alpenglow",
+    "blockRevenue": {
+      "baseFees": 186985000,
+      "priorityFees": 2387302869,
+      "mevTips": 4325367478
+    },
+    "rates": {
+      "inflationRewardsCommissionBps": 200,
+      "blockRevenueCommissionBps": 10000,
+      "mevCommissionBps": 200,
+      "mevCommissionBpsSource": "epoch"
+    },
+    "income": {
+      "voteAccountReward": null,
+      "inflationCommission": null,
+      "blockRevenueCommission": 2574287869,
+      "mevCommission": 86507349,
+      "votingReward": 9629592714,
+      "producerBonus": 11265958619
+    },
+    "sharedWithStakers": 0,
+    "costs": {
+      "voteFees": 0,
+      "voteFeesExact": true,
+      "vat": 800000000,
+      "vatExact": false
+    },
+    "net": null,
+    "accounts": {
+      "inflationCommission": "voteAccount",
+      "blockRevenueCommission": "identity",
+      "mevCommission": "identity",
+      "voteFees": "identity",
+      "vat": "voteAccount"
+    }
+  }
+]

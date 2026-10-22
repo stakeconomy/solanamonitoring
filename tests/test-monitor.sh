@@ -300,3 +300,46 @@ rank_missing="$(run_vx 'MOCK_VX_FILTER=.[0].rank = null')"
 assert_absent "$rank_missing" 'vxParticipationRank='
 assert_contains "$rank_missing" 'vxParticipationPct='
 printf '%s\n' 'VX finalization and admission tests passed'
+
+# Earnings from a live mainnet response, with epoch normalized to the RPC fixture.
+earnings="$(run_vx MOCK_EARNINGS_EXPECT_ENDPOINT=https://api.testnet.vx.tools/epochs/earnings)"
+assert_contains "$earnings" 'vxEarningsApiUp=1i,vxEarningsEpoch=1026i'
+assert_contains "$earnings" 'vxEarningsBaseFeesLamports=186985000i'
+assert_contains "$earnings" 'vxEarningsPriorityFeesLamports=2387302869i'
+assert_contains "$earnings" 'vxEarningsBlockRevenueLamports=2574287869i'
+assert_contains "$earnings" 'vxEarningsMevShareLamports=86507349i'
+assert_contains "$earnings" 'vxEarningsEstimatedAlpenglowLamports=417911026i'
+assert_contains "$earnings" 'vxEarningsEstimatedTotalLamports=3078706244i'
+mainnet_earnings="$(run_vx MOCK_MAINNET_ALPENGLOW=1 MOCK_EARNINGS_EXPECT_ENDPOINT=https://api.vx.tools/epochs/earnings)"
+assert_contains "$mainnet_earnings" 'vxEarningsApiUp=1i'
+for filter in 'null' '[]' '. + .' '.[0].epoch += 1' '.[0].consensus = "tower"'; do
+  invalid="$(run_vx "MOCK_EARNINGS_FILTER=$filter" 2>/dev/null)"
+  assert_contains "$invalid" 'vxEarningsApiUp=0i'
+  assert_contains "$invalid" 'vxApiUp=1i'
+  assert_absent "$invalid" 'vxEarningsEstimatedTotalLamports='
+done
+failed="$(run_vx MOCK_EARNINGS_FAIL=1 2>/dev/null)"
+assert_contains "$failed" 'vxEarningsApiUp=0i'
+assert_contains "$failed" 'vxParticipationPct='
+failed="$(run_vx MOCK_VX_FAIL=1 2>/dev/null)"
+assert_contains "$failed" 'vxApiUp=0i'
+assert_contains "$failed" 'vxEarningsEstimatedTotalLamports='
+for filter in '.[0].rates.mevCommissionBps = null' '.[0].income.mevCommission = null' \
+  '.[0].rates.blockRevenueCommissionBps = null' '.[0].rates.inflationRewardsCommissionBps = 10001' \
+  '.[0].income.producerBonus = -1' '.[0].income.blockRevenueCommission = 9007199254740992' \
+  '.[0].income.mevCommission = 1.5'; do
+  partial="$(run_vx "MOCK_EARNINGS_FILTER=$filter")"
+  assert_contains "$partial" 'vxEarningsApiUp=1i'
+  assert_contains "$partial" 'vxEarningsEstimatedTotalAvailable=0i'
+  assert_absent "$partial" 'vxEarningsEstimatedTotalLamports='
+done
+zero="$(run_vx 'MOCK_EARNINGS_FILTER=.[0].blockRevenue.mevTips = 0 | .[0].income.mevCommission = 0 | .[0].rates.mevCommissionBps = null')"
+assert_contains "$zero" 'vxEarningsMevShareAvailable=1i,vxEarningsMevShareLamports=0i'
+previous="$(run_vx 'MOCK_EARNINGS_FILTER=.[0].rates.mevCommissionBpsSource = "previousEpoch"')"
+assert_contains "$previous" 'vxEarningsMevRatePreviousEpoch=1i'
+for mode in 'MONITOR_VX_ENABLED=0' 'MOCK_MAINNET=1' 'MOCK_UNKNOWN_GENESIS=1'; do
+  disabled="$(run_vx "$mode")"
+  assert_contains "$disabled" 'vxEarningsApiUp=0i'
+  assert_absent "$disabled" 'vxEarningsEstimatedTotalLamports='
+done
+printf 'VX earnings tests passed\n'

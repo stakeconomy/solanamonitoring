@@ -293,6 +293,75 @@ load_vx_fields() {
   vx_fields=",$parsed"
 }
 
+
+# Independent of participation: a failure in either endpoint preserves the other.
+load_vx_earnings() {
+  local endpoint response parsed
+  [[ "$vx_enabled" == 1 && "$consensus" == alpenglow ]] || return
+  case "$genesis_hash" in
+    5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d) endpoint=https://api.vx.tools ;;
+    4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY) endpoint=https://api.testnet.vx.tools ;;
+    *) return ;;
+  esac
+  jq -e 'any(.[]; .id == "epochInfo" and .error == null and
+    (.result.epoch | type == "number"))' >/dev/null 2>&1 <<<"$batch_response" || return
+  jq -e --arg vote "$vote_account" --arg identity "$identity_pubkey" \
+    'any(.result.current[], .result.delinquent[]; .votePubkey == $vote and .nodePubkey == $identity)' \
+    >/dev/null 2>&1 <<<"$vote_response" || return
+  if ! response="$("$curl_bin" --silent --show-error --fail --max-time "$vx_timeout" \
+      --get --data-urlencode "voteKey=$vote_account" --data-urlencode 'limit=1' \
+      "$endpoint/epochs/earnings" 2>/dev/null)"; then
+    printf 'monitor: VX earnings request failed\n' >&2
+    return
+  fi
+  if ! parsed="$(jq -er --argjson epoch "$epoch" '
+    def uint: type == "number" and . >= 0 and . <= 9007199254740991 and floor == .;
+    def rate: uint and . <= 10000;
+    def field($n; $v): "\($n)=\($v)i";
+    def amount($n; $v): [field("vxEarnings\($n)Available"; if ($v | uint) then 1 else 0 end)] +
+      (if ($v | uint) then [field("vxEarnings\($n)Lamports"; $v)] else [] end);
+    if type != "array" then error("expected array") else . end |
+    [.[] | select(.epoch == $epoch)] |
+    if length != 1 then error("missing or duplicate current epoch") else .[0] end |
+    if .consensus != "alpenglow" then error("wrong consensus") else . end |
+    . as $r |
+    (if ([.blockRevenue.baseFees, .blockRevenue.priorityFees] | all(.[]; uint))
+      then .blockRevenue.baseFees + .blockRevenue.priorityFees else null end) as $fees |
+    (if ($fees | uint) and (.rates.blockRevenueCommissionBps | rate) and
+        (.income.blockRevenueCommission | uint) and .income.blockRevenueCommission <= $fees
+      then .income.blockRevenueCommission else null end) as $block |
+    (if (.blockRevenue.mevTips | uint) and (.income.mevCommission | uint) and
+        .income.mevCommission <= .blockRevenue.mevTips and
+        ((.blockRevenue.mevTips == 0 and .income.mevCommission == 0) or
+          ((.rates.mevCommissionBps | rate) and
+           (.rates.mevCommissionBpsSource == "epoch" or .rates.mevCommissionBpsSource == "previousEpoch")))
+      then .income.mevCommission else null end) as $mev |
+    (if ([.income.votingReward, .income.producerBonus] | all(.[]; uint))
+      and (.rates.inflationRewardsCommissionBps | rate)
+      then (.income.votingReward + .income.producerBonus) as $gross |
+        if ($gross | uint) then ($gross / 10000 * .rates.inflationRewardsCommissionBps | floor) else null end
+      else null end) as $inflation |
+    (if ([$block, $mev, $inflation] | all(.[]; uint)) then $block + $mev + $inflation else null end) as $total |
+    ["vxEarningsApiUp=1i", field("vxEarningsEpoch"; $epoch)] +
+    amount("BaseFees"; .blockRevenue.baseFees) +
+    amount("PriorityFees"; .blockRevenue.priorityFees) +
+    amount("MevTips"; .blockRevenue.mevTips) +
+    amount("BlockRevenue"; $block) + amount("MevShare"; $mev) +
+    amount("EstimatedAlpenglow"; $inflation) + amount("EstimatedTotal"; $total) +
+    ([ ["Inflation", .rates.inflationRewardsCommissionBps],
+       ["Block", .rates.blockRevenueCommissionBps], ["Mev", .rates.mevCommissionBps] ] |
+      map(. as [$name, $value] | if ($value | rate) then
+        [field("vxEarnings\($name)CommissionBps"; $value)] else [] end) | add) +
+    (if ($mev | uint) and .blockRevenue.mevTips > 0 then
+      [field("vxEarningsMevRatePreviousEpoch"; if .rates.mevCommissionBpsSource == "previousEpoch" then 1 else 0 end)]
+     else [] end) | join(",")
+  ' <<<"$response" 2>/dev/null)"; then
+    printf 'monitor: invalid VX earnings response or current epoch unavailable\n' >&2
+    return
+  fi
+  vx_earnings_fields=",$parsed"
+}
+
 pct() {
   awk -v numerator="$1" -v denominator="$2" \
     'BEGIN { if (denominator == 0) print "0.00"; else printf "%.2f", 100 * numerator / denominator }'
@@ -673,6 +742,8 @@ vote_balance="$(sol_amount "$vote_balance_lamports")"
 
 vx_fields=',vxEnabled=0i,vxApiUp=0i,vxDataFresh=0i,vxNextEpochAvailable=0i'
 load_vx_fields
+vx_earnings_fields=',vxEarningsApiUp=0i'
+load_vx_earnings
 
 fields="collectorUp=1i,genesisMatch=1i,status=${status}i,rootSlot=${root_slot}i,lastVote=${last_vote}i"
 if [[ "$consensus" == 'tower' ]]; then
@@ -688,7 +759,7 @@ if ((batch_ok)); then
   fi
   fields+=",leaderSlots=${leader_slots}i,skippedSlots=${skipped_slots}i,pctSkipped=${pct_skipped},pctTotSkipped=${pct_total_skipped},pctSkippedDelta=${pct_skipped_delta}"
 fi
-fields+="$vx_fields"
+fields+="$vx_fields$vx_earnings_fields"
 fields+=",pctTotDelinquent=${pct_total_delinquent}${price_field},openFiles=${open_files}i,validatorBalance=${identity_balance},validatorVoteBalance=${vote_balance},nodes=${nodes}i,epoch=${epoch}i,pctEpochElapsed=${pct_epoch_elapsed},epochEnds=${epoch_ends}i,tps=${transaction_count}i"
 
 printf 'nodemonitor,cluster=%s,genesis=%s,consensus=%s,pubkey=%s,vote_account=%s,schema=2 %s %s\n' \
