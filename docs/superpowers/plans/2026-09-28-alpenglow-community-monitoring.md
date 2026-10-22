@@ -56,7 +56,7 @@ Expected: FAIL because the current record has only a `pubkey` tag and no schema-
 Add a pure Bash `cluster_metadata_for_genesis` helper that maps exactly:
 
 ```bash
-5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp -> mainnet-beta tower
+5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d -> mainnet-beta tower
 4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY -> testnet alpenglow
 EtWTRABZaYq6iMfeYKouRu166VU2xqa1 -> devnet unknown
 * -> custom unknown

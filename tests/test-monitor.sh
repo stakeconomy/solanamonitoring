@@ -202,6 +202,13 @@ assert_contains "$vx_output" 'vxSlotLag=100i'
 vx_mainnet="$(run_vx MOCK_MAINNET_ALPENGLOW=1 MOCK_VX_EXPECT_ENDPOINT=https://api.vx.tools/epochs/participation)"
 assert_contains "$vx_mainnet" 'cluster=mainnet-beta'
 assert_contains "$vx_mainnet" 'vxApiUp=1i'
+assert_contains "$vx_mainnet" 'genesis=5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d'
+assert_contains "$vx_mainnet" 'vxEnabled=1i'
+# A truncated chain identifier is not a valid mainnet genesis hash.
+vx_truncated="$(run_vx 'MOCK_BATCH_FILTER=map(if .id == "genesisHash" then .result = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" else . end)')"
+assert_contains "$vx_truncated" 'cluster=custom'
+assert_contains "$vx_truncated" 'vxEnabled=0i'
+
 for mode in 'MONITOR_VX_ENABLED=0' 'MOCK_MAINNET=1' 'MOCK_UNKNOWN_GENESIS=1'; do
   disabled="$(run_vx "$mode")"
   assert_contains "$disabled" 'vxEnabled=0i'

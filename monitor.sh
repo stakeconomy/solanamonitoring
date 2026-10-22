@@ -207,7 +207,7 @@ rpc_call() {
 load_vx_fields() {
   local endpoint response parsed
   case "$genesis_hash" in
-    5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp) endpoint='https://api.vx.tools' ;;
+    5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d) endpoint='https://api.vx.tools' ;;
     4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY) endpoint='https://api.testnet.vx.tools' ;;
     *) return ;;
   esac
@@ -308,7 +308,7 @@ influx_tag() {
 
 cluster_metadata_for_genesis() {
   case "$1" in
-    5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp) printf '%s\t%s' 'mainnet-beta' 'tower' ;;
+    5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d) printf '%s\t%s' 'mainnet-beta' 'tower' ;;
     4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY) printf '%s\t%s' 'testnet' 'alpenglow' ;;
     EtWTRABZaYq6iMfeYKouRu166VU2xqa1) printf '%s\t%s' 'devnet' 'unknown' ;;
     *) printf '%s\t%s' 'custom' 'unknown' ;;
@@ -593,7 +593,7 @@ if ((sample_slots <= 0 || sample_seconds <= 0)); then
 
     official_performance_rpc=""
     case "$genesis_hash" in
-      5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp)
+      5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d)
         official_performance_rpc='https://api.mainnet-beta.solana.com'
         ;;
       4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY)
