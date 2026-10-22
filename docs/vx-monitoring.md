@@ -232,13 +232,20 @@ tested alongside dashboard query guards and transform idempotence.
 
 ## Integrated dashboard layout
 
-The main overview follows a SolCircle-inspired two-column hierarchy using native
-Grafana panels, without additional plugins. Epoch health is followed by
-participation and fast-vote inclusion, then gross epoch rewards and estimated
-validator income. Gross rewards show total, voting, producer bonus and missed
-rewards together. Estimated income shows total and the Alpenglow, block-fee and
-MEV shares, keeping gross rewards separate from validator income before costs.
-Admission, leader production and balances follow directly underneath.
+The main overview uses compact native Grafana panels without additional plugins.
+A status/epoch strip is followed by four single-value headline cards: participation,
+fast-vote inclusion, gross epoch rewards and estimated validator income. Below
+these, smaller supporting panels show rank/missed slots, next-epoch admission,
+the gross reward breakdown, and estimated income components. Leader production,
+skip rate, active stake and account balances follow in one compact strip.
+
+Headline values use fixed 36px text and supporting values 18px, preventing Grafana
+from expanding individual values to fill large empty panels. Percentages show
+three decimals and overview SOL amounts four; missed rewards retain six decimals.
+Full precision remains in the stored metrics and exact-value diagnostic panels.
+The native Stat horizontal orientation intentionally stacks repeated values in
+rows (Grafana 9.2.3 VizRepeater semantics), rather than stretching a breakdown
+across the screen. No duplicate vote-account balance appears in admission.
 
 Income breakdown and Consensus diagnostics are collapsed by default. Expand
 those rows to inspect the gross fee/MEV breakdown, source coverage and accounting
@@ -247,7 +254,7 @@ from this Alpenglow-focused dashboard; stored historical metrics are unchanged.
 Host snapshots and historical charts
 remain below the validator overview.
 
-This adopts the app screenshot hierarchy, not unsupported SolCircle calculations:
+This applies the app screenshot hierarchy to a compact desktop overview, not unsupported SolCircle calculations:
 Fast-Vote Inclusion still uses all decoded certificates, with no invented FAST,
 Vote Accuracy, cluster medians or percentile comparisons. All existing identity,
 epoch, freshness and availability guards are retained. Import the new dashboard

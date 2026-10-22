@@ -146,7 +146,7 @@ def interface_filter:
 
 # Unpack our collapsed rows before rebuilding them (also handles exported expanded rows).
 .panels |= [ .[] | if .id == 195 or .id == 197 or .id == 204 then .panels[]? else . end ]
-| .panels |= map(select(.id != 205 and .id != 61 and .id != 121 and .id != 126))
+| .panels |= map(select(.id != 205 and .id != 206 and .id != 212 and .id != 213 and .id != 61 and .id != 121 and .id != 126))
 | (.templating.list[] | select(.name == "pubkey")) as $pubkey_var
 | (.templating.list[] | select(.name == "server")) as $server_var
 | (.templating.list[] | select(.name == "inter")) as $interval_var
@@ -758,84 +758,108 @@ def interface_filter:
       .
     end
   )
-# SolCircle-inspired hierarchy: epoch health, two-column performance/rewards,
-# leader/admission, expandable details, then host health and history.
+# Compact native Grafana composition: a single value per headline card,
+# smaller supporting panels underneath, and fixed typography at every width.
+| .panels += [
+    (vx_stat(206; "Participation detail"; "Rank uses VX competition ranking, with ties shared. Missed slots are certificate non-inclusions, not proof of downtime.";
+      vx_value("vxParticipationRank"); "none"; 0; 8) |
+      .targets = [named_target("A"; vx_value("vxParticipationRank"); "Rank"),
+                  named_target("B"; vx_value("vxMissedSlots"); "Missed slots")]),
+    (vx_stat(212; "Reward breakdown · gross SOL"; "Current epoch gross rewards before the inflation commission. Missed rewards are estimated, not earned.";
+      vx_reward("Voting"); "SOL"; 12; 8) |
+      .targets = [named_target("A"; vx_reward("Voting"); "Voting"),
+                  named_target("B"; vx_reward("Producer"); "Producer bonus"),
+                  named_target("C"; vx_reward("Missed"); "Missed")]),
+    (vx_stat(213; "Income breakdown · estimated SOL"; "Validator shares before VAT and operating costs. MEV is before builder/router deductions. Missing components stay unknown.";
+      vx_earnings("EstimatedAlpenglow"); "SOL"; 18; 8) |
+      .targets = [named_target("A"; vx_earnings("EstimatedAlpenglow"); "Alpenglow"),
+                  named_target("B"; vx_earnings("BlockRevenue"); "Block fees"),
+                  named_target("C"; vx_earnings("MevShare"); "MEV")])
+  ]
 | .panels |= map(
     .id as $id |
     if $id == 180 then empty
-    elif $id == 181 then .gridPos = {x:0,y:3,w:12,h:6}
-    elif $id == 193 then .gridPos = {x:12,y:3,w:12,h:6}
-    elif $id == 187 then .gridPos = {x:0,y:9,w:12,h:6}
-    elif $id == 201 then .gridPos = {x:12,y:9,w:12,h:6}
-    elif $id == 194 then .gridPos = {x:0,y:15,w:8,h:6}
-    elif $id == 99 then .gridPos = {x:8,y:15,w:4,h:3} | .title = "Leader Slots Produced"
-    elif $id == 100 then .gridPos = {x:12,y:15,w:4,h:3} | .title = "Leader Slots Skipped"
-    elif $id == 62 then .gridPos = {x:16,y:15,w:8,h:3}
-    elif $id == 162 then .gridPos = {x:8,y:18,w:8,h:3}
-    elif $id == 163 then .gridPos = {x:16,y:18,w:8,h:3}
-    elif $id == 97 then .gridPos = {x:6,y:1,w:4,h:2} | .title = "Epoch Progress"
-    elif $id == 124 then .gridPos = {x:10,y:1,w:4,h:2}
-    elif $id == 54 then .gridPos = {x:14,y:1,w:2,h:2}
-    elif $id == 197 then .gridPos = {x:0,y:21,w:24,h:1} | .title = "Income breakdown — fees and MEV"
-    elif $id == 198 then .gridPos = {x:0,y:22,w:8,h:6}
-    elif $id == 199 then .gridPos = {x:8,y:22,w:8,h:6}
-    elif $id == 200 then .gridPos = {x:16,y:22,w:8,h:6}
-    elif $id == 195 then .gridPos = {x:0,y:22,w:24,h:1} | .title = "Consensus diagnostics and data coverage"
-    elif $id == 165 then .gridPos = {x:0,y:31,w:6,h:4}
-    elif ([182,183,184,189,190,191,188,196] | index($id)) != null then
-      ([182,183,184,189,190,191,188,196] | index($id)) as $n |
-      .gridPos = {x:(($n % 4)*6),y:(23+(($n/4|floor)*4)),w:6,h:4}
-    elif ([120,73,52,71,89,90,80,67,69,142,92,44,98,29] | index($id)) != null then
-      .gridPos.y = (if ([92,44,98,29] | index($id)) != null then 27 else 25 end)
-    elif $id == 117 then .gridPos = {x:0,y:30,w:24,h:1}
-    elif $id == 56 then .gridPos = {x:0,y:31,w:12,h:8}
-    elif $id == 144 then .gridPos = {x:12,y:31,w:12,h:8}
-    elif $id == 160 then .gridPos = {x:0,y:39,w:12,h:3}
-    elif $id == 161 then .gridPos = {x:12,y:39,w:12,h:3}
-    elif $id == 75 then .gridPos = {x:0,y:42,w:24,h:8}
-    elif $id == 76 then .gridPos = {x:0,y:50,w:12,h:8}
-    elif $id == 4 then .gridPos = {x:12,y:50,w:12,h:8}
-    elif $id == 122 then .gridPos = {x:0,y:58,w:12,h:8}
-    elif $id == 57 then .gridPos = {x:12,y:58,w:12,h:8}
-    elif $id == 113 then .gridPos = {x:0,y:66,w:24,h:1}
+    elif $id == 115 then .title = "Validator overview · current epoch"
+    elif $id == 54 then .gridPos = {x:0,y:1,w:4,h:3}
+    elif $id == 98 then .gridPos = {x:4,y:1,w:3,h:3} | .title = "Epoch"
+    elif $id == 97 then .gridPos = {x:7,y:1,w:7,h:3} | .title = "Epoch progress"
+    elif $id == 124 then .gridPos = {x:14,y:1,w:6,h:3} | .title = "Epoch ends"
+    elif $id == 29 then .gridPos = {x:20,y:1,w:4,h:3} | .title = "Validator version"
+    elif $id == 181 then .gridPos = {x:0,y:4,w:6,h:4} |
+      .targets = [named_target("A"; vx_value("vxParticipationPct"); "Participation")]
+    elif $id == 193 then .gridPos = {x:6,y:4,w:6,h:4}
+    elif $id == 187 then .gridPos = {x:12,y:4,w:6,h:4} | .title = "Epoch rewards · gross" |
+      .targets = [named_target("A"; vx_reward("Total"); "Gross rewards")]
+    elif $id == 201 then .gridPos = {x:18,y:4,w:6,h:4} | .title = "Validator income · estimated" |
+      .targets = [named_target("A"; vx_earnings("EstimatedTotal"); "Before costs")]
+    elif $id == 194 then .gridPos = {x:6,y:8,w:6,h:4} | .title = "Next-epoch admission" |
+      .targets = [named_target("A"; vx_next("vxNextEpochAdmitted"); "Admission"),
+                  named_target("B"; vx_next("vxNextEpoch"); "Epoch")]
+    elif $id == 99 then .gridPos = {x:0,y:12,w:4,h:3} | .title = "Leader slots produced"
+    elif $id == 100 then .gridPos = {x:4,y:12,w:4,h:3} | .title = "Leader slots skipped"
+    elif $id == 62 then .gridPos = {x:8,y:12,w:4,h:3} | .title = "Skip rate"
+    elif $id == 43 then .gridPos = {x:12,y:12,w:4,h:3} | .title = "Active stake"
+    elif $id == 162 then .gridPos = {x:16,y:12,w:4,h:3}
+    elif $id == 163 then .gridPos = {x:20,y:12,w:4,h:3}
+    elif $id == 197 then .gridPos = {x:0,y:15,w:24,h:1} | .title = "Income detail · fees, MEV and exact amounts"
+    elif $id == 198 then .gridPos = {x:0,y:16,w:8,h:4}
+    elif $id == 199 then .gridPos = {x:8,y:16,w:8,h:4}
+    elif $id == 200 then .gridPos = {x:16,y:16,w:8,h:4}
+    elif $id == 195 then .gridPos = {x:0,y:16,w:24,h:1} | .title = "Diagnostics · consensus and source health"
+    elif ([182,183,184,189,190,191,188,196,165,166,167,164,145,147] | index($id)) != null then
+      ([182,183,184,189,190,191,188,196,165,166,167,164,145,147] | index($id)) as $n |
+      .gridPos = {x:(($n % 4)*6),y:(17+(($n/4|floor)*4)),w:6,h:4}
+    elif ([120,73,52,71,89,90,80,67,69,142,92,44] | index($id)) != null then
+      .gridPos.y = (if ([92,44] | index($id)) != null then 20 else 18 end)
+    elif $id == 117 then .gridPos = {x:0,y:23,w:24,h:1}
+    elif $id == 56 then .gridPos = {x:0,y:24,w:12,h:8}
+    elif $id == 144 then .gridPos = {x:12,y:24,w:12,h:8}
+    elif $id == 160 then .gridPos = {x:0,y:32,w:12,h:3}
+    elif $id == 161 then .gridPos = {x:12,y:32,w:12,h:3}
+    elif $id == 75 then .gridPos = {x:0,y:35,w:24,h:8}
+    elif $id == 76 then .gridPos = {x:0,y:43,w:12,h:8}
+    elif $id == 4 then .gridPos = {x:12,y:43,w:12,h:8}
+    elif $id == 122 then .gridPos = {x:0,y:51,w:12,h:8}
+    elif $id == 57 then .gridPos = {x:12,y:51,w:12,h:8}
+    elif $id == 113 then .gridPos = {x:0,y:59,w:24,h:1}
     elif ([104,102,85,139,108,111,118,135,129,133,127,137,131] | index($id)) != null then
-      ({"104":67,"102":67,"85":77,"139":77,"108":87,"111":87,
-        "118":97,"135":97,"129":106,"133":106,"127":115,"137":115,"131":124}[($id|tostring)]) as $host_y |
+      ({"104":60,"102":60,"85":70,"139":70,"108":80,"111":80,
+        "118":90,"135":90,"129":99,"133":99,"127":108,"137":108,"131":117}[($id|tostring)]) as $host_y |
       .gridPos.y = $host_y
     else . end |
-    if ([181,193,187,201] | index($id)) != null then
-      .transparent = false | .options.textMode = "value_and_name" |
-      .fieldConfig.defaults.color = {mode:"fixed",fixedColor:(if $id == 187 then "purple" else "green" end)}
+    if .type == "stat" then
+      .options.text = {valueSize:22,titleSize:12} | .options.justifyMode = "center" |
+      .options.orientation = "horizontal"
     else . end |
-    if $id == 187 then
-      .title = "Epoch Rewards — Gross" |
-      .targets += [named_target("D"; vx_reward("Missed"); "Missed rewards")] |
-      .fieldConfig.overrides += [{matcher:{id:"byName",options:"Missed rewards"},
-        properties:[{id:"color",value:{mode:"fixed",fixedColor:"orange"}}]}]
-    elif $id == 201 then
-      .title = "Validator Income — Estimated" |
-      .targets += [named_target("C"; vx_earnings("BlockRevenue"); "Block fees — validator share"),
-                  named_target("D"; vx_earnings("MevShare"); "MEV — estimated share")]
+    if ([181,193,187,201] | index($id)) != null then
+      .transparent = false | .options.textMode = "value" |
+      .options.text = {valueSize:36,titleSize:12} |
+      .fieldConfig.defaults.decimals = (if $id == 181 or $id == 193 then 3 else 4 end) |
+      .fieldConfig.defaults.color = {mode:"fixed",fixedColor:(if $id == 187 then "purple" elif $id == 181 then "green" else "blue" end)}
+    elif ([206,194,212,213] | index($id)) != null then
+      .transparent = false | .options.textMode = "value_and_name" |
+      .options.text = {valueSize:18,titleSize:12} |
+      .options.colorMode = "none" |
+      .fieldConfig.defaults.decimals = (if $id == 212 or $id == 213 then 4 else 0 end) |
+      if $id == 212 then .fieldConfig.overrides = [{matcher:{id:"byName",options:"Missed"},
+        properties:[{id:"decimals",value:6},{id:"color",value:{mode:"fixed",fixedColor:"orange"}}]}] else . end
     elif $id == 120 then
-      .options.content = "### Validator and host health\nCurrent-epoch participation, rewards and admission are shown above. Income is estimated before costs; expand the breakdown or diagnostics for details.\n\n[Stakeconomy](https://stakeconomy.com) · [Monitoring repository](https://github.com/stakeconomy/solanamonitoring)"
+      .options.content = "### Host health\n[Stakeconomy](https://stakeconomy.com) · [Monitoring repository](https://github.com/stakeconomy/solanamonitoring)"
     else . end
   )
-| .panels += [
-    {id:205,type:"row",title:"Host snapshot — $server",collapsed:false,
-     panels:[],gridPos:{x:0,y:24,w:24,h:1}}
-  ]
+| .panels += [{id:205,type:"row",title:"Host snapshot · $server",collapsed:false,
+     panels:[],gridPos:{x:0,y:17,w:24,h:1}}]
 | .panels as $all
 | .panels |= map(
     .id as $id |
-    if ([198,199,200,182,183,184,189,190,191,188,196,165] | index($id)) != null then empty
+    if ([198,199,200,182,183,184,189,190,191,188,196,165,166,167,164,145,147] | index($id)) != null then empty
     elif $id == 197 then .collapsed = true | .panels = [$all[] | select(.id == 198 or .id == 199 or .id == 200)]
-    elif $id == 195 then .collapsed = true | .panels = [$all[] | .id as $child | select(([182,183,184,189,190,191,188,196,165] | index($child)) != null)]
+    elif $id == 195 then .collapsed = true | .panels = [$all[] | .id as $child | select(([182,183,184,189,190,191,188,196,165,166,167,164,145,147] | index($child)) != null)]
     else . end
   )
-# Close the space left by removing the legacy Tower history row.
-| .panels |= map(if .gridPos.y >= 24 then .gridPos.y -= 1 else . end)
 # New targets added to the cards must remain instant queries too.
 | walk(if type == "object" and .type? == "stat" then
+    .maxDataPoints = 1 | .fieldConfig.defaults.noValue = "No recent data" | .options.graphMode = "none" |
     .targets |= map(.instant = true | .range = false) else . end)
 | walk(if type == "object" and .type? == "row" then .panels |= sort_by(.gridPos.y, .gridPos.x, .id) else . end)
 | .panels |= sort_by(.gridPos.y, .gridPos.x, .id)
