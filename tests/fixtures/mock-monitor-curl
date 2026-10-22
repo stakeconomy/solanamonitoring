@@ -12,6 +12,12 @@ while (($#)); do
       payload="${2:-}"
       shift 2
       ;;
+    --data-urlencode)
+      shift 2
+      ;;
+    --get)
+      shift
+      ;;
     --max-time|--header|-H)
       shift 2
       ;;
@@ -24,6 +30,18 @@ while (($#)); do
       ;;
   esac
 done
+
+if [[ "$endpoint" == https://api.vx.tools/epochs/participation || "$endpoint" == https://api.testnet.vx.tools/epochs/participation ]]; then
+  [[ "${MOCK_VX_FAIL:-0}" != 1 ]] || exit 22
+  [[ -z "${MOCK_VX_EXPECT_ENDPOINT:-}" || "$endpoint" == "$MOCK_VX_EXPECT_ENDPOINT" ]] || exit 22
+  exec jq "${MOCK_VX_FILTER:-.}" "${MOCK_VX_FILE:-$fixture_dir/monitor-vx.json}"
+fi
+
+if [[ "$endpoint" == https://api.vx.tools/epochs/earnings || "$endpoint" == https://api.testnet.vx.tools/epochs/earnings ]]; then
+  [[ "${MOCK_EARNINGS_FAIL:-0}" != 1 ]] || exit 22
+  [[ -z "${MOCK_EARNINGS_EXPECT_ENDPOINT:-}" || "$endpoint" == "$MOCK_EARNINGS_EXPECT_ENDPOINT" ]] || exit 22
+  exec jq "${MOCK_EARNINGS_FILTER:-.}" "$fixture_dir/monitor-vx-earnings.json"
+fi
 
 if [[ -z "$payload" ]]; then
   if [[ "${MOCK_PRICE_FAIL:-0}" == 1 ]]; then
@@ -61,10 +79,16 @@ if jq -e 'type == "array"' >/dev/null 2>&1 <<<"$payload"; then
     batch_filter+=' | map(if .id == "genesisHash" then .result = "UnknownGenesis111111111111111111111111111" else . end)'
   fi
   if [[ "${MOCK_MAINNET:-0}" == 1 ]]; then
-    batch_filter+=' | map(if .id == "genesisHash" then .result = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" elif .id == "agGenesisCert" then .result = null else . end)'
+    batch_filter+=' | map(if .id == "genesisHash" then .result = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d" elif .id == "agGenesisCert" then .result = null else . end)'
   fi
   if [[ "${MOCK_AG_CERT_NULL:-0}" == 1 ]]; then
     batch_filter+=' | map(if .id == "agGenesisCert" then .result = null else . end)'
+  fi
+  if [[ "${MOCK_MAINNET_ALPENGLOW:-0}" == 1 ]]; then
+    batch_filter+=' | map(if .id == "genesisHash" then .result = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d" else . end)'
+  fi
+  if [[ -n "${MOCK_BATCH_FILTER:-}" ]]; then
+    batch_filter+=" | $MOCK_BATCH_FILTER"
   fi
   exec jq "$batch_filter" "$fixture_dir/monitor-batch.json"
 fi

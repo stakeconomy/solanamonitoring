@@ -1,0 +1,43 @@
+[
+  {
+    "epoch": 1026,
+    "admitted": true,
+    "complete": false,
+    "eligibleSlots": 77192,
+    "notarizedSlots": 76663,
+    "skippedSlots": 504,
+    "skippedNotarizedSlots": 4,
+    "missedSlots": 25,
+    "missingFooters": 0,
+    "lastIngestedSlot": 437726100,
+    "rewards": {
+      "votingLamports": 2353670667,
+      "producerBonusLamports": 2582028114,
+      "totalLamports": 4935698781,
+      "missedLamports": 762525,
+      "unpayableLamports": 24553305,
+      "onChainLamports": 79056
+    },
+    "finalizedCerts": 1000,
+    "finalizedSlots": 998,
+    "fastFinalizedSlots": 997,
+    "rank": 42
+  },
+  {
+    "epoch": 1027,
+    "admitted": true,
+    "complete": false,
+    "eligibleSlots": 0,
+    "notarizedSlots": 0,
+    "skippedSlots": 0,
+    "skippedNotarizedSlots": 0,
+    "missedSlots": 0,
+    "missingFooters": 0,
+    "lastIngestedSlot": null,
+    "rewards": null,
+    "finalizedCerts": 0,
+    "finalizedSlots": 0,
+    "fastFinalizedSlots": 0,
+    "rank": null
+  }
+]

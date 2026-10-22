@@ -4,6 +4,10 @@
 
 ### Collector
 
+- Adds separate VX epoch earnings: base/priority fees, validator block-revenue share, estimated MEV share and estimated total validator income before costs, with explicit missing-rate handling and no double counting of the producer bonus.
+- Adds optional VX certificate participation and gross epoch reward totals within the existing collector, with bounded requests, exact cluster routing, current-epoch selection and explicit data availability.
+- Adds a four-card VX overview with consensus participation/rank, fast-vote inclusion over all finalization certificates, grouped epoch rewards and next-epoch admission, with source freshness/coverage and the unresolved VX/on-chain accounting difference below.
+
 - Added schema-v2 `cluster`, `genesis`, `consensus`, `pubkey`, and `vote_account` tags, preventing shared-database mainnet/testnet collisions.
 - Detects Tower versus Alpenglow with `getAgGenesisCert`; Tower credit-efficiency fields are deliberately omitted for Alpenglow.
 - Emits `alpenglowRewardAccountingLamports` only for validated Alpenglow post-migration epoch-credit tuples; malformed or migration-marker tuples are omitted.

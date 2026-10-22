@@ -63,6 +63,39 @@ def stat_panel($id; $title; $description; $expr; $unit; $x; $thresholds):
     "type": "stat"
   };
 
+# Every VX value must belong to this collection and the RPC current epoch.
+# This also prevents Prometheus lookback from resurrecting omitted values.
+def vx_metric($field): "nodemonitor_" + $field + "{consensus=\"alpenglow\",pubkey=\"$pubkey\"}";
+def vx_recent($field):
+  vx_metric($field) + " and (timestamp(" + vx_metric($field) + ") > time() - 150)";
+def vx_value($field):
+  vx_recent($field) + " and (" + vx_metric("vxDataFresh") + " == 1)" +
+  " and (" + vx_metric("vxAdmitted") + " == 1)" +
+  " and (" + vx_metric("vxEpoch") + " == " + vx_metric("epoch") + ")" +
+  " and (timestamp(" + vx_metric($field) + ") == timestamp(" + vx_metric("vxDataFresh") + "))";
+def vx_reward($kind):
+  "(" + vx_value("vxReward" + $kind + "Lamports") +
+  " and (" + vx_metric("vxReward" + $kind + "Available") + " == 1)) / 1e9";
+def vx_next($field):
+  vx_recent($field) + " and (" + vx_metric("vxApiUp") + " == 1)" +
+  " and (" + vx_metric("vxNextEpochAvailable") + " == 1)" +
+  " and (" + vx_metric("vxNextEpoch") + " == (" + vx_metric("epoch") + " + 1))" +
+  " and (timestamp(" + vx_metric($field) + ") == timestamp(" + vx_metric("vxApiUp") + "))";
+# Earnings has no source-slot watermark: recent successful collection is not proof of source freshness.
+def vx_earnings($kind):
+  ("vxEarnings" + $kind + "Lamports") as $field |
+  "(" + vx_recent($field) + " and (" + vx_metric("vxEarningsApiUp") + " == 1)" +
+  " and (" + vx_metric("vxEarningsEpoch") + " == " + vx_metric("epoch") + ")" +
+  " and (" + vx_metric("vxEarnings" + $kind + "Available") + " == 1)" +
+  " and (timestamp(" + vx_metric($field) + ") == timestamp(" + vx_metric("vxEarningsApiUp") + "))) / 1e9";
+def named_target($id; $expr; $label): target($id; $expr; $label);
+
+def vx_stat($id; $title; $desc; $expr; $unit; $x; $y):
+  stat_panel($id; $title; $desc; $expr; $unit; $x;
+    [{"color": "blue", "value": null}]) |
+  .gridPos = {h: 4, w: 6, x: $x, y: $y} |
+  .fieldConfig.defaults.decimals = (if $unit == "percent" then 4 elif $unit == "SOL" then 9 else 0 end);
+
 def timeline_panel($id; $title; $description; $expr; $x; $mappings):
   {
     "datasource": datasource,
@@ -632,6 +665,95 @@ def interface_filter:
       )
     ]
   end
+# Rebuild our owned VX panels so upgrades and reruns produce the same layout.
+| .panels |= map(select(.id < 180 or .id > 201))
+| ([.panels[].gridPos | .y + .h] | max) as $bottom
+| ($bottom + 1) as $y
+| .panels += [
+    {id: 180, type: "row", title: "Alpenglow overview — VX",
+     collapsed: false, panels: [], gridPos: {h: 1, w: 24, x: 0, y: $bottom}},
+    (vx_stat(181; "Consensus Participation";
+      "Current epoch: 100 × (notarizedSlots + skippedSlots) / eligibleSlots. Skip votes count as participation. Measures certificate inclusion, not all messages sent. Rank is VX competition rank + 1; ties are shared and rank may update less frequently than counts. Missing footers reduce coverage.";
+      vx_value("vxParticipationPct"); "percent"; 0; $y) |
+      .gridPos.h = 6 | .options.orientation = "vertical" | .options.textMode = "value_and_name" |
+      .targets = [named_target("A"; vx_value("vxParticipationPct"); "Participation"),
+                  named_target("B"; vx_value("vxParticipationRank"); "Rank (ties shared)")] |
+      .fieldConfig.overrides = [{matcher: {id: "byName", options: "Rank (ties shared)"},
+        properties: [{id: "unit", value: "none"}, {id: "decimals", value: 0}]}]),
+    (vx_stat(193; "Fast-Vote Inclusion";
+      "Current epoch: 100 × fastFinalizedSlots / finalizedCerts from VX. Denominator includes all decoded finalization certificates, not just fast certificates. Leader-sampled certificate inclusion, not a direct latency measurement. Solcircle FAST divides by fast certificates only; this metric divides by all decoded certificates and is not comparable to FAST. Missing, invalid or zero-denominator data is unknown.";
+      vx_value("vxFastVoteInclusionPct"); "percent"; 6; $y) | .gridPos.h = 6),
+    (vx_stat(187; "Epoch Rewards";
+      "VX-calculated gross cumulative SOL this epoch. Total = Voting + Producer bonus, checked for consistency. Before commission allocation to validator/stakers, excluding transaction fees and MEV. Not confirmed net income. Missing components remain unknown; the accounting comparison is below.";
+      vx_reward("Total"); "SOL"; 12; $y) |
+      .gridPos.h = 6 | .options.orientation = "vertical" | .options.textMode = "value_and_name" |
+      .targets = [named_target("A"; vx_reward("Total"); "Total"),
+                  named_target("B"; vx_reward("Voting"); "Voting"),
+                  named_target("C"; vx_reward("Producer"); "Producer bonus")]),
+    (vx_stat(194; "Next-Epoch Admission";
+      "VX admission record for local RPC epoch + 1. Not admitted is an operational warning: investigate VAT funding, BLS registration and other eligibility conditions; the response does not identify the cause. Missing or duplicate next-epoch records are unknown. Vote-account balance is the local RPC balance including rent reserve, not spendable VAT funds or proof of admission. No fixed fee threshold is assumed.";
+      vx_next("vxNextEpochAdmitted"); "none"; 18; $y) |
+      .gridPos.h = 6 | .options.orientation = "vertical" | .options.textMode = "value_and_name" |
+      .targets = [named_target("A"; vx_next("vxNextEpochAdmitted"); "Admission"),
+                  named_target("B"; vx_next("vxNextEpoch"); "Next epoch"),
+                  named_target("C"; vx_recent("validatorVoteBalance"); "Vote-account balance")] |
+      .fieldConfig.overrides = [
+        {matcher: {id: "byName", options: "Admission"}, properties: [{id: "mappings", value: [
+          {type: "value", options: {"0": {text: "Not admitted", color: "red"}, "1": {text: "Admitted", color: "green"}}}]}]},
+        {matcher: {id: "byName", options: "Vote-account balance"},
+         properties: [{id: "unit", value: "SOL"}, {id: "decimals", value: 9}]}]),
+    {id: 197, type: "row", title: "Block revenue and estimated validator income — VX",
+     collapsed: false, panels: [], gridPos: {h: 1, w: 24, x: 0, y: ($y + 6)}},
+    (vx_stat(198; "Block Fees — Gross";
+      "Cumulative current-epoch base fees and priority fees reported by VX earnings. Separate from the Alpenglow producer bonus. Excludes MEV. Earnings has no ingestion-slot watermark: a successful fetch does not prove source freshness.";
+      vx_earnings("BaseFees"); "SOL"; 0; ($y + 7)) |
+      .gridPos.h = 6 | .options.orientation = "vertical" | .options.textMode = "value_and_name" |
+      .targets = [named_target("A"; vx_earnings("BaseFees"); "Base fees"),
+                  named_target("B"; vx_earnings("PriorityFees"); "Priority fees")]),
+    (vx_stat(199; "Validator Block Revenue";
+      "VX-reported validator share of base plus priority fees, using the epoch block-revenue commission. Not the inflation commission. Excludes Alpenglow producer bonus and MEV. Missing rates remain unknown.";
+      vx_earnings("BlockRevenue"); "SOL"; 6; ($y + 7)) | .gridPos.h = 6),
+    (vx_stat(200; "MEV Tips and Estimated Share";
+      "Gross Jito tips and estimated validator share at the separate MEV commission. VX may use the previous epoch rate until the current rate is available. Before block-builder and tip-router deductions; may overstate final proceeds. Unknown rates stay unknown; genuine zero tips remain zero.";
+      vx_earnings("MevShare"); "SOL"; 12; ($y + 7)) |
+      .gridPos.h = 6 | .options.orientation = "vertical" | .options.textMode = "value_and_name" |
+      .targets = [named_target("A"; vx_earnings("MevTips"); "Gross tips"),
+                  named_target("B"; vx_earnings("MevShare"); "Estimated validator share")]),
+    (vx_stat(201; "Estimated Validator Income";
+      "Current epoch before VAT and operating costs. Alpenglow estimate = (votingReward + producerBonus) × inflation commission. Total adds validator block-fee share and estimated MEV share from the same earnings response, never the gross producer bonus or voteAccountReward again. All three components must be available. Provisional rates, source lag, payout rounding and MEV deductions can change the result. Not net profit or confirmed payout.";
+      vx_earnings("EstimatedTotal"); "SOL"; 18; ($y + 7)) |
+      .gridPos.h = 6 | .options.orientation = "vertical" | .options.textMode = "value_and_name" |
+      .targets = [named_target("A"; vx_earnings("EstimatedTotal"); "Estimated income before costs"),
+                  named_target("B"; vx_earnings("EstimatedAlpenglow"); "Estimated Alpenglow commission")]),
+    {id: 195, type: "row", title: "Alpenglow diagnostics — VX",
+     collapsed: false, panels: [], gridPos: {h: 1, w: 24, x: 0, y: ($y + 13)}},
+    vx_stat(182; "Missed Participations";
+      "Current epoch eligible slots absent from both reward bitmaps. Does not prove the validator was offline; the producer may have omitted its vote. Unpayable slots and missing source data are excluded.";
+      vx_value("vxMissedSlots"); "short"; 0; ($y + 14)),
+    (vx_stat(183; "VX Data Fresh";
+      "1: valid current-epoch source progress within the configured slot tolerance. 0: failed, missing, stale or disabled. Collector samples older than 150 seconds are hidden. Coverage is separate.";
+      vx_recent("vxDataFresh"); "none"; 6; ($y + 14)) |
+      .fieldConfig.defaults.mappings = [{type: "value", options: {"0": {text: "Unavailable / stale", color: "red"}, "1": {text: "Fresh", color: "green"}}}]),
+    vx_stat(184; "VX Missing Footers";
+      "Current epoch source gaps. Nonzero means participation is measured on incomplete coverage; it must not be treated as a complete epoch score.";
+      vx_value("vxMissingFooters"); "short"; 12; ($y + 14)),
+    vx_stat(189; "VX Source Lag";
+      "Local RPC absolute slot minus VX last ingested reward slot, floored at zero. Aggregates update roughly every 25 seconds; collection is once per minute. Source progress too far ahead is also rejected.";
+      vx_recent("vxSlotLag"); "short"; 18; ($y + 14)),
+    vx_stat(190; "Missed Rewards — Epoch";
+      "VX estimate of gross rewards missed through non-inclusion, in SOL this epoch. Cause is not inferred. Nine decimal places preserve small losses down to one lamport.";
+      vx_reward("Missed"); "SOL"; 0; ($y + 18)),
+    vx_stat(191; "Unpayable Rewards — Epoch";
+      "VX estimate for slots that paid nobody, for example a skipped payer block. Not counted as validator misses. Cumulative gross SOL this epoch.";
+      vx_reward("Unpayable"); "SOL"; 6; ($y + 18)),
+    vx_stat(188; "VX Minus On-Chain Accounting";
+      "Diagnostic SOL difference: VX total minus VX-reported onChainLamports. A mismatch is not automatically a loss or fault. Activation and the eight-slot reward/footer epoch boundary require reconciliation; equality is not independent verification.";
+      "(" + vx_reward("Total") + ") - (" + vx_reward("OnChain") + ")";
+      "SOL"; 12; ($y + 18)),
+    vx_stat(196; "Skip Votes on Produced Blocks";
+      "VX skippedNotarizedSlots: skip inclusions on slots where the cluster produced a block. Raw diagnostic count, not an unverified Vote Accuracy percentage.";
+      vx_value("vxSkipOnBlockSlots"); "short"; 18; ($y + 18))
+  ]
 | .panels |= map(
     if (.type == "stat" or .type == "gauge" or .type == "bargauge") then
       .maxDataPoints = 1

@@ -251,3 +251,43 @@ jq -f "$enhancement" "$dashboard" >"$enhanced"
 cmp -s "$dashboard" "$enhanced" || fail 'dashboard enhancement is not idempotent'
 
 printf '%s\n' 'dashboard tests passed'
+
+jq -e '
+  [.panels[] | select(.id >= 181 and .id <= 196 and .type == "stat")] as $vx |
+  ($vx | length) == 12 and
+  all($vx[]; all(.targets[]; .expr | contains("time() - 150"))) and
+  all($vx[] | select(.id != 183 and .id != 189 and .id != 194);
+    all(.targets[]; (.expr | contains("nodemonitor_vxDataFresh")) and
+      (.expr | contains("nodemonitor_vxEpoch")) and
+      (.expr | contains("timestamp(")))) and
+  any($vx[]; .id == 188 and (.targets[0].expr | contains("vxRewardOnChainAvailable"))) and
+  any($vx[]; .id == 187 and (.targets[0].expr | contains("vxRewardTotalAvailable")))
+' "$dashboard" >/dev/null || fail 'VX panels lack current-epoch, availability or freshness guards'
+printf '%s\n' 'VX dashboard tests passed'
+
+jq -e '
+  [.panels[] | select(.id == 181 or .id == 193 or .id == 187 or .id == 194)] as $overview |
+  ($overview | length) == 4 and ([$overview[].gridPos.y] | unique | length) == 1 and
+  ([$overview[].title] | sort) == (["Consensus Participation", "Fast-Vote Inclusion", "Epoch Rewards", "Next-Epoch Admission"] | sort) and
+  any($overview[]; .id == 187 and ([.targets[].legendFormat] == ["Total", "Voting", "Producer bonus"]) and .fieldConfig.defaults.decimals == 9) and
+  any($overview[]; .id == 193 and .fieldConfig.defaults.decimals == 4 and (.description | contains("not a direct latency"))) and
+  any($overview[]; .id == 194 and (.targets[0].expr | contains("vxNextEpochAvailable")) and (.targets[0].expr | contains(" + 1")) and ((.targets[0].expr | contains("vxDataFresh")) | not)) and
+  all(.panels[] | select(.id >= 180 and .fieldConfig.defaults.unit == "SOL"); .fieldConfig.defaults.decimals == 9)
+' "$dashboard" >/dev/null || fail 'VX overview grouping, precision or admission guards are incorrect'
+printf '%s\n' 'VX overview tests passed'
+
+jq -e '
+  [.panels[] | select(.id >= 198 and .id <= 201)] as $p |
+  ($p | length) == 4 and
+  all($p[]; .fieldConfig.defaults.decimals == 9 and
+    all(.targets[]; .instant == true and
+      (.expr | contains("vxEarningsApiUp")) and
+      (.expr | contains("vxEarningsEpoch")) and
+      (.expr | contains("Available")) and
+      (.expr | contains("timestamp(")) and
+      (.expr | contains("time() - 150")) and
+      (.expr | contains("cluster=~")) and
+      (.expr | contains("genesis=~")) and
+      (.expr | contains("vote_account=~"))))
+' "$dashboard" >/dev/null || fail 'earnings panels must guard epoch, collection age, availability and identity'
+printf 'VX earnings dashboard tests passed\n'
