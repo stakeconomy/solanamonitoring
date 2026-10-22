@@ -228,3 +228,31 @@ its epoch normalized supplies the earnings test fixture. Endpoint errors,
 missing/duplicate/wrong-epoch rows, malformed optional amounts, missing/out-of-range
 rates, previous-epoch MEV rates, true zeros and independent endpoint failures are
 tested alongside dashboard query guards and transform idempotence.
+
+
+## Integrated dashboard layout
+
+The main overview follows a SolCircle-inspired two-column hierarchy using native
+Grafana panels, without additional plugins. Epoch health is followed by
+participation and fast-vote inclusion, then gross epoch rewards and estimated
+validator income. Gross rewards show total, voting, producer bonus and missed
+rewards together. Estimated income shows total and the Alpenglow, block-fee and
+MEV shares, keeping gross rewards separate from validator income before costs.
+Admission, leader production and balances follow directly underneath.
+
+Income breakdown and Consensus diagnostics are collapsed by default. Expand
+those rows to inspect the gross fee/MEV breakdown, source coverage and accounting
+discrepancy. Tower history retains the three legacy vote-credit graphs in a
+collapsed row; it is manually expandable for historical Tower periods, not
+conditional auto-hiding based on the selected cluster. Under Alpenglow those
+three graphs intentionally have no data. Host snapshots and historical charts
+remain below the validator overview.
+
+This adopts the app screenshot hierarchy, not unsupported SolCircle calculations:
+Fast-Vote Inclusion still uses all decoded certificates, with no invented FAST,
+Vote Accuracy, cluster medians or percentile comparisons. All existing identity,
+epoch, freshness and availability guards are retained. Import the new dashboard
+JSON to apply this presentation-only change; no collector update is needed.
+Export the existing dashboard first to preserve any local customizations and
+allow restoring its layout. The enhancement transform handles collapsed and
+expanded exports without losing child panels or duplicating them.
