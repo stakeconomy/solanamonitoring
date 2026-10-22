@@ -62,7 +62,7 @@ jq -e '
 ' "$dashboard" >/dev/null || fail 'nodemonitor PromQL queries are not scoped by cluster and genesis'
 
 jq -e '
-  any((.. | objects | select(has("gridPos") and has("id"))); .id == 126 and (.title | contains("Tower")))
+  all((.. | objects | select(has("gridPos") and has("id"))); .id != 61 and .id != 121 and .id != 126 and .id != 204)
   and any((.. | objects | select(has("gridPos") and has("id"))); .id == 99 and (.title | contains("Leader Slots")))
   and any((.. | objects | select(has("gridPos") and has("id"))); .id == 100 and (.title | contains("Leader Slots")))
 ' "$dashboard" >/dev/null || fail 'dashboard does not distinguish Tower credits from scheduled-slot production'
@@ -193,7 +193,6 @@ jq -e '
 jq -e '
   ((.. | objects | select(has("gridPos") and has("id"))) | select(.id == 56) | all(.targets[]; (.expr | contains("[")) | not))
   and ((.. | objects | select(has("gridPos") and has("id"))) | select(.id == 75) | all(.targets[]; (.expr | contains("[")) | not))
-  and ((.. | objects | select(has("gridPos") and has("id"))) | select(.id == 126) | all(.targets[]; (.expr | contains("[")) | not))
 ' "$dashboard" >/dev/null || fail 'raw validator gauges still use redundant range vectors'
 
 jq -e '
@@ -238,9 +237,6 @@ jq -e '
     and (.description | contains("reward accounting only, not performance"))
     and .fieldConfig.defaults.unit == "SOL"
     and .targets[0].expr == "nodemonitor_alpenglowRewardAccountingLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} / 1e9"
-  )
-  and all((.. | objects | select(has("gridPos") and has("id"))) | select(.id == 61 or .id == 121 or .id == 126);
-    (.title | contains("Tower")) and (.targets[0].expr | contains("consensus=\"tower\""))
   )
   and ([(.. | objects | select(has("gridPos") and has("id"))) | select((.title // "") | test("Votor participation"; "i"))] | length == 0)
 ' "$dashboard" >/dev/null || fail 'dashboard does not isolate Tower credits or label Alpenglow reward accounting correctly'
@@ -295,7 +291,6 @@ printf 'VX earnings dashboard tests passed\n'
 
 jq -e '
   all(.panels[]; .id != 180 and .id != 61 and .id != 126 and .id != 121) and
-  any(.panels[]; .id == 204 and .collapsed == true and ([.panels[].id] | sort) == [61,121,126]) and
   any(.panels[]; .id == 195 and .collapsed == true and (.panels | length) == 9) and
   any(.panels[]; .id == 197 and .collapsed == true and ([.panels[].id] | sort) == [198,199,200]) and
   any(.panels[]; .id == 201 and ([.targets[].legendFormat] ==

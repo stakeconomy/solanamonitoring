@@ -146,7 +146,7 @@ def interface_filter:
 
 # Unpack our collapsed rows before rebuilding them (also handles exported expanded rows).
 .panels |= [ .[] | if .id == 195 or .id == 197 or .id == 204 then .panels[]? else . end ]
-| .panels |= map(select(.id != 205))
+| .panels |= map(select(.id != 205 and .id != 61 and .id != 121 and .id != 126))
 | (.templating.list[] | select(.name == "pubkey")) as $pubkey_var
 | (.templating.list[] | select(.name == "server")) as $server_var
 | (.templating.list[] | select(.name == "inter")) as $interval_var
@@ -401,24 +401,6 @@ def interface_filter:
       .title = "Leader slots and skips"
       | .targets[0].expr = "nodemonitor_leaderSlots{pubkey=\"$pubkey\"}"
       | .targets[1].expr = "nodemonitor_skippedSlots{pubkey=\"$pubkey\"}"
-    elif .id == 61 then
-      .title = "Tower vote-credit rate"
-      | .targets[0].expr = "rate(nodemonitor_credits{consensus=\"tower\",pubkey=\"$pubkey\"}[5m])"
-      | .targets[0].legendFormat = "Tower vote-credit rate"
-      | .description = "Five-minute rate of Tower vote credits; it is intentionally unavailable on Alpenglow clusters."
-    elif .id == 126 then
-      .title = "Tower vote-credit efficiency"
-      | .description = "Tower-only credit-efficiency estimate. It is intentionally unavailable on Alpenglow clusters."
-      | .targets[0].legendFormat = "Tower vote-credit efficiency"
-      | .fieldConfig.defaults.unit = "percent"
-      | .fieldConfig.defaults.min = 0
-      | .fieldConfig.defaults.max = 100
-      | .targets[0].expr = "nodemonitor_pctVote{consensus=\"tower\",pubkey=\"$pubkey\"}/16"
-    elif .id == 121 then
-      .title = "Tower epoch vote credits"
-      | .description = "Tower-only epoch vote-credit accounting. It is intentionally unavailable on Alpenglow clusters."
-      | .targets[0].legendFormat = "Tower epoch vote credits"
-      | .targets[0].expr = "nodemonitor_validatorCreditsCurrent{consensus=\"tower\",pubkey=\"$pubkey\"}"
     elif .id == 164 then
       .gridPos = {"h": 2, "w": 2, "x": 16, "y": 1}
       | .title = "Cluster delinquent stake"
@@ -803,9 +785,6 @@ def interface_filter:
     elif ([182,183,184,189,190,191,188,196] | index($id)) != null then
       ([182,183,184,189,190,191,188,196] | index($id)) as $n |
       .gridPos = {x:(($n % 4)*6),y:(23+(($n/4|floor)*4)),w:6,h:4}
-    elif ([61,126,121] | index($id)) != null then
-      ([61,126,121] | index($id)) as $n |
-      .gridPos = {x:0,y:(24+$n*8),w:24,h:8}
     elif ([120,73,52,71,89,90,80,67,69,142,92,44,98,29] | index($id)) != null then
       .gridPos.y = (if ([92,44,98,29] | index($id)) != null then 27 else 25 end)
     elif $id == 117 then .gridPos = {x:0,y:30,w:24,h:1}
@@ -842,20 +821,19 @@ def interface_filter:
     else . end
   )
 | .panels += [
-    {id:204,type:"row",title:"Tower history — legacy vote credits",collapsed:true,
-     panels:[],gridPos:{x:0,y:23,w:24,h:1}},
     {id:205,type:"row",title:"Host snapshot — $server",collapsed:false,
      panels:[],gridPos:{x:0,y:24,w:24,h:1}}
   ]
 | .panels as $all
 | .panels |= map(
     .id as $id |
-    if ([198,199,200,182,183,184,189,190,191,188,196,165,61,126,121] | index($id)) != null then empty
+    if ([198,199,200,182,183,184,189,190,191,188,196,165] | index($id)) != null then empty
     elif $id == 197 then .collapsed = true | .panels = [$all[] | select(.id == 198 or .id == 199 or .id == 200)]
     elif $id == 195 then .collapsed = true | .panels = [$all[] | .id as $child | select(([182,183,184,189,190,191,188,196,165] | index($child)) != null)]
-    elif $id == 204 then .panels = [$all[] | select(.id == 61 or .id == 126 or .id == 121)]
     else . end
   )
+# Close the space left by removing the legacy Tower history row.
+| .panels |= map(if .gridPos.y >= 24 then .gridPos.y -= 1 else . end)
 # New targets added to the cards must remain instant queries too.
 | walk(if type == "object" and .type? == "stat" then
     .targets |= map(.instant = true | .range = false) else . end)

@@ -2570,322 +2570,6 @@
       }
     },
     {
-      "id": 204,
-      "type": "row",
-      "title": "Tower history — legacy vote credits",
-      "collapsed": true,
-      "panels": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "left",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 30,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "lineInterpolation": "linear",
-                "lineStyle": {
-                  "fill": "solid"
-                },
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": true,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "mappings": [],
-              "min": 0,
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "unit": "none"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "x": 0,
-            "y": 24,
-            "w": 24,
-            "h": 8
-          },
-          "id": 61,
-          "interval": "$inter",
-          "options": {
-            "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "list",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "none"
-            }
-          },
-          "pluginVersion": "9.1.1",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
-              },
-              "editorMode": "code",
-              "expr": "rate(nodemonitor_credits{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"tower\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}[5m])",
-              "legendFormat": "Tower vote-credit rate",
-              "range": true,
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "title": "Tower vote-credit rate",
-          "type": "timeseries",
-          "description": "Five-minute rate of Tower vote credits; it is intentionally unavailable on Alpenglow clusters.",
-          "maxDataPoints": 1200
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 30,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "lineInterpolation": "linear",
-                "lineWidth": 2,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": true,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "line"
-                }
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "red",
-                    "value": null
-                  },
-                  {
-                    "color": "transparent",
-                    "value": 60
-                  }
-                ]
-              },
-              "unit": "percent",
-              "min": 0,
-              "max": 100
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "x": 0,
-            "y": 32,
-            "w": 24,
-            "h": 8
-          },
-          "id": 126,
-          "interval": "$inter",
-          "options": {
-            "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "list",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "none"
-            }
-          },
-          "pluginVersion": "9.1.1",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
-              },
-              "editorMode": "code",
-              "expr": "nodemonitor_pctVote{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"tower\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}/16",
-              "legendFormat": "Tower vote-credit efficiency",
-              "range": true,
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "title": "Tower vote-credit efficiency",
-          "type": "timeseries",
-          "description": "Tower-only credit-efficiency estimate. It is intentionally unavailable on Alpenglow clusters.",
-          "maxDataPoints": 1200
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 30,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "lineInterpolation": "linear",
-                "lineWidth": 2,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": true,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "red",
-                    "value": 80
-                  }
-                ]
-              },
-              "unit": "none"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "x": 0,
-            "y": 40,
-            "w": 24,
-            "h": 8
-          },
-          "id": 121,
-          "options": {
-            "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "list",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "none"
-            }
-          },
-          "pluginVersion": "9.1.1",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${DS_PROMETHEUS}"
-              },
-              "editorMode": "code",
-              "expr": "nodemonitor_validatorCreditsCurrent{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"tower\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}",
-              "legendFormat": "Tower epoch vote credits",
-              "range": true,
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "title": "Tower epoch vote credits",
-          "type": "timeseries",
-          "interval": "$inter",
-          "maxDataPoints": 1200,
-          "description": "Tower-only epoch vote-credit accounting. It is intentionally unavailable on Alpenglow clusters."
-        }
-      ],
-      "gridPos": {
-        "x": 0,
-        "y": 23,
-        "w": 24,
-        "h": 1
-      }
-    },
-    {
       "id": 205,
       "type": "row",
       "title": "Host snapshot — $server",
@@ -2893,7 +2577,7 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 24,
+        "y": 23,
         "w": 24,
         "h": 1
       }
@@ -2907,7 +2591,7 @@
         "h": 2,
         "w": 6,
         "x": 0,
-        "y": 25
+        "y": 24
       },
       "id": 120,
       "options": {
@@ -2972,7 +2656,7 @@
         "h": 5,
         "w": 2,
         "x": 6,
-        "y": 25
+        "y": 24
       },
       "id": 73,
       "links": [],
@@ -3058,7 +2742,7 @@
         "h": 5,
         "w": 2,
         "x": 8,
-        "y": 25
+        "y": 24
       },
       "id": 52,
       "links": [],
@@ -3135,7 +2819,7 @@
         "h": 5,
         "w": 2,
         "x": 10,
-        "y": 25
+        "y": 24
       },
       "id": 71,
       "links": [],
@@ -3212,7 +2896,7 @@
         "h": 5,
         "w": 2,
         "x": 12,
-        "y": 25
+        "y": 24
       },
       "id": 89,
       "links": [],
@@ -3290,7 +2974,7 @@
         "h": 5,
         "w": 2,
         "x": 14,
-        "y": 25
+        "y": 24
       },
       "id": 90,
       "links": [],
@@ -3368,7 +3052,7 @@
         "h": 5,
         "w": 2,
         "x": 16,
-        "y": 25
+        "y": 24
       },
       "id": 80,
       "links": [],
@@ -3443,7 +3127,7 @@
         "h": 5,
         "w": 2,
         "x": 18,
-        "y": 25
+        "y": 24
       },
       "id": 67,
       "links": [],
@@ -3531,7 +3215,7 @@
         "h": 5,
         "w": 2,
         "x": 20,
-        "y": 25
+        "y": 24
       },
       "id": 69,
       "links": [],
@@ -3601,7 +3285,7 @@
         "h": 2,
         "w": 2,
         "x": 22,
-        "y": 25
+        "y": 24
       },
       "id": 142,
       "options": {
@@ -3668,7 +3352,7 @@
         "h": 2,
         "w": 2,
         "x": 0,
-        "y": 27
+        "y": 26
       },
       "id": 92,
       "links": [],
@@ -3740,7 +3424,7 @@
         "h": 2,
         "w": 2,
         "x": 2,
-        "y": 27
+        "y": 26
       },
       "id": 44,
       "options": {
@@ -3818,7 +3502,7 @@
         "h": 2,
         "w": 2,
         "x": 4,
-        "y": 27
+        "y": 26
       },
       "id": 98,
       "links": [],
@@ -4144,7 +3828,7 @@
         "h": 2,
         "w": 2,
         "x": 22,
-        "y": 27
+        "y": 26
       },
       "id": 29,
       "interval": "30s",
@@ -4192,7 +3876,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 30,
+        "y": 29,
         "w": 24,
         "h": 1
       },
@@ -4262,7 +3946,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 31,
+        "y": 30,
         "w": 12,
         "h": 8
       },
@@ -4377,7 +4061,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 31,
+        "y": 30,
         "w": 12,
         "h": 8
       },
@@ -4701,7 +4385,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 39,
+        "y": 38,
         "w": 12,
         "h": 3
       },
@@ -4792,7 +4476,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 39,
+        "y": 38,
         "w": 12,
         "h": 3
       },
@@ -4894,7 +4578,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 41,
         "w": 24,
         "h": 8
       },
@@ -5012,7 +4696,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 50,
+        "y": 49,
         "w": 12,
         "h": 8
       },
@@ -5111,7 +4795,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 50,
+        "y": 49,
         "w": 12,
         "h": 8
       },
@@ -5210,7 +4894,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 58,
+        "y": 57,
         "w": 12,
         "h": 8
       },
@@ -5308,7 +4992,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 58,
+        "y": 57,
         "w": 12,
         "h": 8
       },
@@ -5355,7 +5039,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 66,
+        "y": 65,
         "w": 24,
         "h": 1
       },
@@ -5428,7 +5112,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 67
+        "y": 66
       },
       "id": 104,
       "interval": "30s",
@@ -5593,7 +5277,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 67
+        "y": 66
       },
       "id": 102,
       "interval": "30s",
@@ -5698,7 +5382,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 77
+        "y": 76
       },
       "id": 85,
       "options": {
@@ -5851,7 +5535,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 77
+        "y": 76
       },
       "id": 139,
       "interval": "30s",
@@ -5992,7 +5676,7 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 87
+        "y": 86
       },
       "id": 108,
       "interval": "30s",
@@ -6149,7 +5833,7 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 87
+        "y": 86
       },
       "id": 111,
       "interval": "30s",
@@ -6270,7 +5954,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 97
+        "y": 96
       },
       "id": 118,
       "interval": "30s",
@@ -6383,7 +6067,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 97
+        "y": 96
       },
       "id": 135,
       "interval": "30s",
@@ -6507,7 +6191,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 106
+        "y": 105
       },
       "id": 129,
       "links": [],
@@ -6650,7 +6334,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 106
+        "y": 105
       },
       "id": 133,
       "interval": "30s",
@@ -6810,7 +6494,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 115
+        "y": 114
       },
       "id": 127,
       "links": [],
@@ -6909,7 +6593,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 115
+        "y": 114
       },
       "id": 137,
       "interval": "30s",
@@ -7118,7 +6802,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 124
+        "y": 123
       },
       "id": 131,
       "links": [],

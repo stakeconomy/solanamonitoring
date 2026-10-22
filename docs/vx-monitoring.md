@@ -242,10 +242,9 @@ Admission, leader production and balances follow directly underneath.
 
 Income breakdown and Consensus diagnostics are collapsed by default. Expand
 those rows to inspect the gross fee/MEV breakdown, source coverage and accounting
-discrepancy. Tower history retains the three legacy vote-credit graphs in a
-collapsed row; it is manually expandable for historical Tower periods, not
-conditional auto-hiding based on the selected cluster. Under Alpenglow those
-three graphs intentionally have no data. Host snapshots and historical charts
+discrepancy. The three Tower vote-credit graphs and their history row are removed
+from this Alpenglow-focused dashboard; stored historical metrics are unchanged.
+Host snapshots and historical charts
 remain below the validator overview.
 
 This adopts the app screenshot hierarchy, not unsupported SolCircle calculations:
