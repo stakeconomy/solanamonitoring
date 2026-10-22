@@ -832,12 +832,12 @@ def interface_filter:
       .options.orientation = "horizontal"
     else . end |
     if ([181,193,187,201] | index($id)) != null then
-      .transparent = false | .options.textMode = "value" |
+      .transparent = true | .options.textMode = "value" |
       .options.text = {valueSize:36,titleSize:12} |
       .fieldConfig.defaults.decimals = (if $id == 181 or $id == 193 then 3 else 4 end) |
       .fieldConfig.defaults.color = {mode:"fixed",fixedColor:(if $id == 187 then "purple" elif $id == 181 then "green" else "blue" end)}
     elif ([206,194,212,213] | index($id)) != null then
-      .transparent = false | .options.textMode = "value_and_name" |
+      .transparent = true | .options.textMode = "value_and_name" |
       .options.text = {valueSize:18,titleSize:12} |
       .options.colorMode = "none" |
       .fieldConfig.defaults.decimals = (if $id == 212 or $id == 213 then 4 else 0 end) |

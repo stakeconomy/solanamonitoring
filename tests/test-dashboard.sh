@@ -294,7 +294,7 @@ jq -e '
   any(.panels[]; .id == 201 and ([.targets[].legendFormat] ==
     ["Before costs"])) and
   all(.panels[] | select(.id == 181 or .id == 193 or .id == 187 or .id == 201);
-    .transparent == false and .gridPos.y < 15)
+    .transparent == true and .gridPos.y < 15)
 ' "$dashboard" >/dev/null || fail 'integrated overview or collapsed historical rows are incorrect'
 
 # An exported expanded row stores children at top level. Both forms must round-trip.
