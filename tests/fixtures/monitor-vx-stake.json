@@ -1,0 +1,9 @@
+{
+  "identity": "8SQEcP4FaYQySktNQeyxF3w8pvArx3oMEh7fPrzkN9pu",
+  "voteKey": "2HUKQz7W2nXZSwrdX5RkfS2rLU4j1QZLjdGCHcoUKFh3",
+  "epoch": 1026,
+  "activeStake": 174427414267560,
+  "activatingStake": 0,
+  "deactivatingStake": 4073023979018,
+  "moving": {"updatedAt": 1792663757, "activating": 0, "deactivating": 4073023979018}
+}

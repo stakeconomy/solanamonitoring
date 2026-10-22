@@ -32,7 +32,7 @@ Options:
   --solana-cli PATH       Path to the solana CLI (identity and epoch-ETA fallback)
   --rpc-timeout SECONDS   RPC request timeout (default: 20)
   --price-timeout SECONDS Price request timeout (default: 3)
-  --no-vx                Disable public VX participation/reward lookup
+  --no-vx                Disable public VX participation/reward/stake lookups
   --vx-timeout SECONDS    VX request timeout (positive; default: 10)
   --vx-max-slot-lag SLOTS Maximum VX/local slot difference (default: 600)
   --performance-rpc-url URL
@@ -360,6 +360,53 @@ load_vx_earnings() {
     return
   fi
   vx_earnings_fields=",$parsed"
+}
+
+
+# Pending stake is independent of participation and earnings.
+load_vx_stake() {
+  local endpoint response parsed
+  [[ "$vx_enabled" == 1 && "$consensus" == alpenglow ]] || return
+  case "$genesis_hash" in
+    5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d) endpoint=https://api.vx.tools ;;
+    4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY) endpoint=https://api.testnet.vx.tools ;;
+    *) return ;;
+  esac
+  jq -e 'any(.[]; .id == "epochInfo" and .error == null and
+    (.result.epoch | type == "number"))' >/dev/null 2>&1 <<<"$batch_response" || return
+  jq -e --arg vote "$vote_account" --arg identity "$identity_pubkey" \
+    'any(.result.current[], .result.delinquent[]; .votePubkey == $vote and .nodePubkey == $identity)' \
+    >/dev/null 2>&1 <<<"$vote_response" || return
+  if ! response="$("$curl_bin" --silent --show-error --fail --max-time "$vx_timeout" \
+      --get --data-urlencode "identity=$identity_pubkey" \
+      "$endpoint/validators/stake" 2>/dev/null)"; then
+    printf 'monitor: VX stake request failed\n' >&2
+    return
+  fi
+  if ! parsed="$(jq -er --arg identity "$identity_pubkey" --arg vote "$vote_account" \
+      --argjson epoch "$epoch" '
+    def uint: type == "number" and . >= 0 and . <= 9007199254740991 and floor == .;
+    def field($n; $v): "\($n)=\($v)i";
+    if .identity != $identity or .voteKey != $vote or .epoch != $epoch then
+      error("wrong validator or epoch") else . end |
+    if ([.activeStake, .activatingStake, .deactivatingStake] | all(.[]; uint)) | not then
+      error("invalid stake amounts") else . end |
+    (.moving.updatedAt) as $updated |
+    (($updated | uint) and $updated >= (now - 300) and $updated <= (now + 60) and
+      .moving.activating == .activatingStake and .moving.deactivating == .deactivatingStake) as $fresh |
+    ["vxStakeApiUp=1i", field("vxStakeEpoch"; .epoch),
+     field("vxStakeDataFresh"; if $fresh then 1 else 0 end)] +
+    (if ($updated | uint) then [field("vxStakeUpdatedAt"; $updated)] else [] end) +
+    (if $fresh then [field("vxStakeActiveLamports"; .activeStake),
+      field("vxStakeActivatingLamports"; .activatingStake),
+      field("vxStakeDeactivatingLamports"; .deactivatingStake),
+      field("vxStakeNetPendingLamports"; .activatingStake - .deactivatingStake)] else [] end) |
+    join(",")
+  ' <<<"$response" 2>/dev/null)"; then
+    printf 'monitor: invalid VX stake response or current epoch unavailable\n' >&2
+    return
+  fi
+  vx_stake_fields=",$parsed"
 }
 
 pct() {
@@ -744,6 +791,8 @@ vx_fields=',vxEnabled=0i,vxApiUp=0i,vxDataFresh=0i,vxNextEpochAvailable=0i'
 load_vx_fields
 vx_earnings_fields=',vxEarningsApiUp=0i'
 load_vx_earnings
+vx_stake_fields=',vxStakeApiUp=0i,vxStakeDataFresh=0i'
+load_vx_stake
 
 fields="collectorUp=1i,genesisMatch=1i,status=${status}i,rootSlot=${root_slot}i,lastVote=${last_vote}i"
 if [[ "$consensus" == 'tower' ]]; then
@@ -759,7 +808,7 @@ if ((batch_ok)); then
   fi
   fields+=",leaderSlots=${leader_slots}i,skippedSlots=${skipped_slots}i,pctSkipped=${pct_skipped},pctTotSkipped=${pct_total_skipped},pctSkippedDelta=${pct_skipped_delta}"
 fi
-fields+="$vx_fields$vx_earnings_fields"
+fields+="$vx_fields$vx_earnings_fields$vx_stake_fields"
 fields+=",pctTotDelinquent=${pct_total_delinquent}${price_field},openFiles=${open_files}i,validatorBalance=${identity_balance},validatorVoteBalance=${vote_balance},nodes=${nodes}i,epoch=${epoch}i,pctEpochElapsed=${pct_epoch_elapsed},epochEnds=${epoch_ends}i,tps=${transaction_count}i"
 
 printf 'nodemonitor,cluster=%s,genesis=%s,consensus=%s,pubkey=%s,vote_account=%s,schema=2 %s %s\n' \

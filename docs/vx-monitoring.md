@@ -1,16 +1,17 @@
 # Alpenglow participation and rewards from VX
 
-The existing `monitor.sh` collector makes two additional bounded HTTP requests
+The existing `monitor.sh` collector makes three additional bounded HTTP requests
 per collection (one minute in the supplied Telegraf profile). No extra daemon,
 gRPC connection, database or local state file is required.
 
 VX is a public, external data source. For detected Alpenglow consensus, the
 collector selects `https://api.vx.tools` for the exact mainnet genesis and
 `https://api.testnet.vx.tools` for the exact testnet genesis. Tower, devnet and
-custom clusters do not trigger a VX request. Both requests contain the public
+custom clusters do not trigger a VX request. The participation and earnings requests contain the public
 vote account and `limit=1`: `/epochs/participation` and `/epochs/earnings`.
-Each has its own timeout (default 10 seconds, at most 20 seconds combined).
-Either endpoint can fail independently without suppressing local monitoring.
+`/validators/stake` uses the public validator identity.
+Each has its own timeout (default 10 seconds, at most 30 seconds combined).
+Each endpoint can fail independently without suppressing local monitoring.
 
 Reference: https://api.vx.tools/llms.txt (checked 2026-10-21).
 
@@ -21,7 +22,7 @@ continue to work; keep their one-minute interval and timeout. VX aggregates are
 updated approximately every 25 seconds, so polling faster is unnecessary for
 this dashboard.
 
-- `--no-vx` / `MONITOR_VX_ENABLED=0`: disable both lookups.
+- `--no-vx` / `MONITOR_VX_ENABLED=0`: disable all three lookups.
 - `--vx-timeout 10` / `MONITOR_VX_TIMEOUT`: positive HTTP timeout in seconds per request.
 - `--vx-max-slot-lag 600` / `MONITOR_VX_MAX_SLOT_LAG`: positive maximum difference
   between local RPC absolute slot and the last ingested VX reward slot. This is
@@ -262,3 +263,36 @@ JSON to apply this presentation-only change; no collector update is needed.
 Export the existing dashboard first to preserve any local customizations and
 allow restoring its layout. The enhancement transform handles collapsed and
 expanded exports without losing child panels or duplicating them.
+
+## Pending stake
+
+The collector fetches `/validators/stake?identity=<validator identity>` independently
+of earnings and participation. No local account index or RPC account scan is needed.
+The response must match the RPC identity, vote account and current epoch. Amounts
+must be nonnegative integers within jq's exact integer range.
+
+Fields in the existing `nodemonitor` measurement:
+
+| Field | Meaning |
+| --- | --- |
+| `vxStakeApiUp` | Valid current-epoch response for this validator |
+| `vxStakeEpoch` | Response epoch |
+| `vxStakeDataFresh` | Moving-stake timestamp is no older than 300 seconds, no more than 60 seconds ahead, and totals agree |
+| `vxStakeUpdatedAt` | VX `moving.updatedAt`, Unix seconds, when valid |
+| `vxStakeActiveLamports` | Active stake reported by VX |
+| `vxStakeActivatingLamports` | Pending incoming stake, positive amount |
+| `vxStakeDeactivatingLamports` | Pending outgoing stake, positive amount |
+| `vxStakeNetPendingLamports` | Activating minus deactivating, signed |
+
+Amount fields are emitted only with fresh data. Missing, stale or failed responses
+are unavailable, not zero. Genuine zero amounts are retained. Divide by 1e9 for SOL;
+use a minus sign for the deactivating amount when displaying outgoing stake.
+These are pending amounts, not a guarantee that all stake moves next epoch.
+
+Future dashboard queries must guard collection age, `vxStakeDataFresh == 1` and
+matching epoch, with the usual cluster/genesis/identity/vote-account selectors.
+This change adds collector fields only; it does not add dashboard panels.
+
+The third request adds up to `--vx-timeout` to a collection's worst-case duration.
+Check the total runtime against your Telegraf exec timeout (one minute in the
+example), especially when using a slow RPC or custom timeouts.

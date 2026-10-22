@@ -343,3 +343,37 @@ for mode in 'MONITOR_VX_ENABLED=0' 'MOCK_MAINNET=1' 'MOCK_UNKNOWN_GENESIS=1'; do
   assert_absent "$disabled" 'vxEarningsEstimatedTotalLamports='
 done
 printf 'VX earnings tests passed\n'
+
+stake="$(run_vx MOCK_STAKE_EXPECT_ENDPOINT=https://api.testnet.vx.tools/validators/stake)"
+assert_contains "$stake" 'vxStakeApiUp=1i,vxStakeEpoch=1026i,vxStakeDataFresh=1i'
+assert_contains "$stake" 'vxStakeActivatingLamports=0i'
+assert_contains "$stake" 'vxStakeDeactivatingLamports=4073023979018i'
+assert_contains "$stake" 'vxStakeNetPendingLamports=-4073023979018i'
+mainnet_stake="$(run_vx MOCK_MAINNET_ALPENGLOW=1 MOCK_STAKE_EXPECT_ENDPOINT=https://api.vx.tools/validators/stake)"
+assert_contains "$mainnet_stake" 'vxStakeApiUp=1i'
+positive="$(run_vx 'MOCK_STAKE_FILTER=.activatingStake = 5000000000000 | .moving.activating = .activatingStake')"
+assert_contains "$positive" 'vxStakeNetPendingLamports=926976020982i'
+for filter in 'null' '.epoch += 1' '.identity = "wrong"' '.voteKey = "wrong"' \
+  '.activatingStake = -1' '.deactivatingStake = null' '.activeStake = 9007199254740992' \
+  '.activatingStake = 1.5'; do
+  invalid="$(run_vx "MOCK_STAKE_FILTER=$filter" 2>/dev/null)"
+  assert_contains "$invalid" 'vxStakeApiUp=0i,vxStakeDataFresh=0i'
+  assert_absent "$invalid" 'vxStakeNetPendingLamports='
+  assert_contains "$invalid" 'vxEarningsApiUp=1i'
+done
+for filter in '.moving.updatedAt -= 301' '.moving.updatedAt += 120' \
+  'del(.moving.updatedAt)' '.moving.activating = 123'; do
+  stale="$(run_vx "MOCK_STAKE_FILTER=$filter")"
+  assert_contains "$stale" 'vxStakeApiUp=1i,vxStakeEpoch=1026i,vxStakeDataFresh=0i'
+  assert_absent "$stale" 'vxStakeActivatingLamports='
+done
+failed="$(run_vx MOCK_STAKE_FAIL=1 2>/dev/null)"
+assert_contains "$failed" 'vxStakeApiUp=0i'
+assert_contains "$failed" 'vxParticipationPct='
+assert_contains "$failed" 'vxEarningsApiUp=1i'
+for mode in 'MONITOR_VX_ENABLED=0' 'MOCK_MAINNET=1' 'MOCK_UNKNOWN_GENESIS=1' 'MOCK_BATCH_FAIL=1'; do
+  disabled="$(run_vx "$mode" 2>/dev/null)"
+  assert_contains "$disabled" 'vxStakeApiUp=0i'
+  assert_absent "$disabled" 'vxStakeNetPendingLamports='
+done
+printf 'VX pending stake tests passed\n'
