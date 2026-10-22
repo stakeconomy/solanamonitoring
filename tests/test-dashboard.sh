@@ -62,9 +62,9 @@ jq -e '
 ' "$dashboard" >/dev/null || fail 'nodemonitor PromQL queries are not scoped by cluster and genesis'
 
 jq -e '
-  any((.. | objects | select(has("gridPos") and has("id"))); .id == 126 and (.title | contains("Tower")))
-  and any((.. | objects | select(has("gridPos") and has("id"))); .id == 99 and (.title | contains("Leader Slots")))
-  and any((.. | objects | select(has("gridPos") and has("id"))); .id == 100 and (.title | contains("Leader Slots")))
+  all((.. | objects | select(has("gridPos") and has("id"))); .id != 61 and .id != 121 and .id != 126 and .id != 204)
+  and any((.. | objects | select(has("gridPos") and has("id"))); .id == 99 and (.title | contains("Leader slots")))
+  and any((.. | objects | select(has("gridPos") and has("id"))); .id == 100 and (.title | contains("Leader slots")))
 ' "$dashboard" >/dev/null || fail 'dashboard does not distinguish Tower credits from scheduled-slot production'
 
 jq -e '
@@ -193,7 +193,6 @@ jq -e '
 jq -e '
   ((.. | objects | select(has("gridPos") and has("id"))) | select(.id == 56) | all(.targets[]; (.expr | contains("[")) | not))
   and ((.. | objects | select(has("gridPos") and has("id"))) | select(.id == 75) | all(.targets[]; (.expr | contains("[")) | not))
-  and ((.. | objects | select(has("gridPos") and has("id"))) | select(.id == 126) | all(.targets[]; (.expr | contains("[")) | not))
 ' "$dashboard" >/dev/null || fail 'raw validator gauges still use redundant range vectors'
 
 jq -e '
@@ -217,18 +216,16 @@ jq -e '
   any((.. | objects | select(has("gridPos") and has("id")));
     .id == 166
     and .title == "Vote freshness"
-    and .gridPos.y == 1
     and (.description | contains("Finalized slot minus last vote"))
     and .targets[0].expr == "nodemonitor_finalizedSlot{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} - nodemonitor_lastVote{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}"
   )
   and any((.. | objects | select(has("gridPos") and has("id")));
     .id == 167
     and .title == "Root freshness"
-    and .gridPos.y == 1
     and (.description | contains("Finalized slot minus root slot"))
     and .targets[0].expr == "nodemonitor_finalizedSlot{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} - nodemonitor_rootSlot{cluster=~\"$cluster\",genesis=~\"$genesis\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"}"
   )
-  and all((.. | objects | select(has("gridPos") and has("id"))) | select(.id == 54 or .id == 164 or .id == 43 or .id == 97); .gridPos.y == 1)
+  and all((.. | objects | select(has("gridPos") and has("id"))) | select(.id == 54 or .id == 98 or .id == 124 or .id == 97); .gridPos.y == 1)
 ' "$dashboard" >/dev/null || fail 'dashboard upper area is not health-first'
 
 jq -e '
@@ -238,9 +235,6 @@ jq -e '
     and (.description | contains("reward accounting only, not performance"))
     and .fieldConfig.defaults.unit == "SOL"
     and .targets[0].expr == "nodemonitor_alpenglowRewardAccountingLamports{cluster=~\"$cluster\",genesis=~\"$genesis\",consensus=\"alpenglow\",pubkey=\"$pubkey\",vote_account=~\"$vote_account\"} / 1e9"
-  )
-  and all((.. | objects | select(has("gridPos") and has("id"))) | select(.id == 61 or .id == 121 or .id == 126);
-    (.title | contains("Tower")) and (.targets[0].expr | contains("consensus=\"tower\""))
   )
   and ([(.. | objects | select(has("gridPos") and has("id"))) | select((.title // "") | test("Votor participation"; "i"))] | length == 0)
 ' "$dashboard" >/dev/null || fail 'dashboard does not isolate Tower credits or label Alpenglow reward accounting correctly'
@@ -268,19 +262,19 @@ printf '%s\n' 'VX dashboard tests passed'
 
 jq -e '
   [(.. | objects | select(has("gridPos") and has("id"))) | select(.id == 181 or .id == 193 or .id == 187 or .id == 201)] as $overview |
-  ($overview | length) == 4 and ([$overview[].gridPos.y] | unique) == [3,9] and all($overview[]; .gridPos.w == 12) and
-  ([$overview[].title] | sort) == (["Consensus Participation", "Fast-Vote Inclusion", "Epoch Rewards — Gross", "Validator Income — Estimated"] | sort) and
-  any($overview[]; .id == 187 and ([.targets[].legendFormat] == ["Total", "Voting", "Producer bonus", "Missed rewards"]) and .fieldConfig.defaults.decimals == 9) and
-  any($overview[]; .id == 193 and .fieldConfig.defaults.decimals == 4 and (.description | contains("not a direct latency"))) and
+  ($overview | length) == 4 and ([$overview[].gridPos.y] | unique) == [4] and all($overview[]; .gridPos.w == 6 and .gridPos.h == 4 and (.targets | length) == 1 and .options.text.valueSize == 36) and
+  ([$overview[].title] | sort) == (["Consensus Participation", "Fast-Vote Inclusion", "Epoch rewards · gross", "Validator income · estimated"] | sort) and
+  any($overview[]; .id == 187 and ([.targets[].legendFormat] == ["Gross rewards"]) and .fieldConfig.defaults.decimals == 4) and
+  any($overview[]; .id == 193 and .fieldConfig.defaults.decimals == 3 and (.description | contains("not a direct latency"))) and
   any((.. | objects | select(has("gridPos") and has("id"))); .id == 194 and (.targets[0].expr | contains("vxNextEpochAvailable")) and (.targets[0].expr | contains(" + 1")) and ((.targets[0].expr | contains("vxDataFresh")) | not)) and
-  all((.. | objects | select(has("gridPos") and has("id"))) | select(.id >= 180 and .fieldConfig.defaults.unit == "SOL"); .fieldConfig.defaults.decimals == 9)
+  all((.. | objects | select(has("gridPos") and has("id"))) | select(.id == 198 or .id == 199 or .id == 200); .fieldConfig.defaults.decimals == 9)
 ' "$dashboard" >/dev/null || fail 'VX overview grouping, precision or admission guards are incorrect'
 printf '%s\n' 'VX overview tests passed'
 
 jq -e '
-  [(.. | objects | select(has("gridPos") and has("id"))) | select(.id >= 198 and .id <= 201)] as $p |
-  ($p | length) == 4 and
-  all($p[]; .fieldConfig.defaults.decimals == 9 and
+  [(.. | objects | select(has("gridPos") and has("id"))) | select((.id >= 198 and .id <= 201) or .id == 213)] as $p |
+  ($p | length) == 5 and
+  all($p[];
     all(.targets[]; .instant == true and
       (.expr | contains("vxEarningsApiUp")) and
       (.expr | contains("vxEarningsEpoch")) and
@@ -295,11 +289,10 @@ printf 'VX earnings dashboard tests passed\n'
 
 jq -e '
   all(.panels[]; .id != 180 and .id != 61 and .id != 126 and .id != 121) and
-  any(.panels[]; .id == 204 and .collapsed == true and ([.panels[].id] | sort) == [61,121,126]) and
-  any(.panels[]; .id == 195 and .collapsed == true and (.panels | length) == 9) and
+  any(.panels[]; .id == 195 and .collapsed == true and (.panels | length) == 14) and
   any(.panels[]; .id == 197 and .collapsed == true and ([.panels[].id] | sort) == [198,199,200]) and
   any(.panels[]; .id == 201 and ([.targets[].legendFormat] ==
-    ["Estimated income before costs", "Estimated Alpenglow commission", "Block fees — validator share", "MEV — estimated share"])) and
+    ["Before costs"])) and
   all(.panels[] | select(.id == 181 or .id == 193 or .id == 187 or .id == 201);
     .transparent == false and .gridPos.y < 15)
 ' "$dashboard" >/dev/null || fail 'integrated overview or collapsed historical rows are incorrect'
@@ -310,3 +303,17 @@ jq '.panels |= [.[] | if .type == "row" and .collapsed then
 jq -f "$enhancement" "$transformed" > "$enhanced"
 cmp -s "$dashboard" "$enhanced" || fail 'expanded row export does not rebuild deterministically'
 printf 'integrated layout and collapsed/expanded round-trip tests passed\n'
+
+jq -e '
+  all(.panels[] | select(.id == 181 or .id == 193 or .id == 187 or .id == 201);
+    (.targets | length) == 1 and .options.textMode == "value" and .options.text.valueSize == 36) and
+  all(.panels[] | select(.id == 206 or .id == 194 or .id == 212 or .id == 213);
+    .options.text.valueSize == 18 and .options.orientation == "horizontal" and .gridPos.y == 8) and
+  all(.panels[] | select(.id == 206 or .id == 212); all(.targets[];
+    (.expr | contains("vxDataFresh")) and (.expr | contains("timestamp(")) and (.expr | contains("time() - 150")))) and
+  any(.panels[]; .id == 194 and (.targets | length) == 2) and
+  any(.panels[]; .id == 212 and any(.fieldConfig.overrides[];
+    .matcher.options == "Missed" and any(.properties[]; .id == "decimals" and .value == 6))) and
+  all((.. | objects | select(.type? == "stat")); .options.text.valueSize <= 36)
+' "$dashboard" >/dev/null || fail 'compact typography, supporting metrics or precision regressed'
+printf 'compact overview typography tests passed\n'
