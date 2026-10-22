@@ -43,6 +43,12 @@ if [[ "$endpoint" == https://api.vx.tools/epochs/earnings || "$endpoint" == http
   exec jq "${MOCK_EARNINGS_FILTER:-.}" "$fixture_dir/monitor-vx-earnings.json"
 fi
 
+if [[ "$endpoint" == https://api.vx.tools/validators/stake || "$endpoint" == https://api.testnet.vx.tools/validators/stake ]]; then
+  [[ "${MOCK_STAKE_FAIL:-0}" != 1 ]] || exit 22
+  [[ -z "${MOCK_STAKE_EXPECT_ENDPOINT:-}" || "$endpoint" == "$MOCK_STAKE_EXPECT_ENDPOINT" ]] || exit 22
+  exec jq ".moving.updatedAt = (now | floor) | ${MOCK_STAKE_FILTER:-.}" "$fixture_dir/monitor-vx-stake.json"
+fi
+
 if [[ -z "$payload" ]]; then
   if [[ "${MOCK_PRICE_FAIL:-0}" == 1 ]]; then
     exit 22
