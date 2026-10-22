@@ -144,7 +144,10 @@ def fstype_filter:
 def interface_filter:
   "^(lo|docker.*|veth.*|br-.*|virbr.*|tailscale.*|wg.*|tun.*|tap.*|cni.*|flannel.*|cali.*|kube.*|nodelocal.*|nodellocal.*)$";
 
-(.templating.list[] | select(.name == "pubkey")) as $pubkey_var
+# Unpack our collapsed rows before rebuilding them (also handles exported expanded rows).
+.panels |= [ .[] | if .id == 195 or .id == 197 or .id == 204 then .panels[]? else . end ]
+| .panels |= map(select(.id != 205))
+| (.templating.list[] | select(.name == "pubkey")) as $pubkey_var
 | (.templating.list[] | select(.name == "server")) as $server_var
 | (.templating.list[] | select(.name == "inter")) as $interval_var
 | ((.panels[] | select(.id == 29) | .fieldConfig.defaults.mappings[0].options) // {}) as $old_version_mappings
@@ -773,6 +776,90 @@ def interface_filter:
       .
     end
   )
+# SolCircle-inspired hierarchy: epoch health, two-column performance/rewards,
+# leader/admission, expandable details, then host health and history.
+| .panels |= map(
+    .id as $id |
+    if $id == 180 then empty
+    elif $id == 181 then .gridPos = {x:0,y:3,w:12,h:6}
+    elif $id == 193 then .gridPos = {x:12,y:3,w:12,h:6}
+    elif $id == 187 then .gridPos = {x:0,y:9,w:12,h:6}
+    elif $id == 201 then .gridPos = {x:12,y:9,w:12,h:6}
+    elif $id == 194 then .gridPos = {x:0,y:15,w:8,h:6}
+    elif $id == 99 then .gridPos = {x:8,y:15,w:4,h:3} | .title = "Leader Slots Produced"
+    elif $id == 100 then .gridPos = {x:12,y:15,w:4,h:3} | .title = "Leader Slots Skipped"
+    elif $id == 62 then .gridPos = {x:16,y:15,w:8,h:3}
+    elif $id == 162 then .gridPos = {x:8,y:18,w:8,h:3}
+    elif $id == 163 then .gridPos = {x:16,y:18,w:8,h:3}
+    elif $id == 97 then .gridPos = {x:6,y:1,w:4,h:2} | .title = "Epoch Progress"
+    elif $id == 124 then .gridPos = {x:10,y:1,w:4,h:2}
+    elif $id == 54 then .gridPos = {x:14,y:1,w:2,h:2}
+    elif $id == 197 then .gridPos = {x:0,y:21,w:24,h:1} | .title = "Income breakdown — fees and MEV"
+    elif $id == 198 then .gridPos = {x:0,y:22,w:8,h:6}
+    elif $id == 199 then .gridPos = {x:8,y:22,w:8,h:6}
+    elif $id == 200 then .gridPos = {x:16,y:22,w:8,h:6}
+    elif $id == 195 then .gridPos = {x:0,y:22,w:24,h:1} | .title = "Consensus diagnostics and data coverage"
+    elif $id == 165 then .gridPos = {x:0,y:31,w:6,h:4}
+    elif ([182,183,184,189,190,191,188,196] | index($id)) != null then
+      ([182,183,184,189,190,191,188,196] | index($id)) as $n |
+      .gridPos = {x:(($n % 4)*6),y:(23+(($n/4|floor)*4)),w:6,h:4}
+    elif ([61,126,121] | index($id)) != null then
+      ([61,126,121] | index($id)) as $n |
+      .gridPos = {x:0,y:(24+$n*8),w:24,h:8}
+    elif ([120,73,52,71,89,90,80,67,69,142,92,44,98,29] | index($id)) != null then
+      .gridPos.y = (if ([92,44,98,29] | index($id)) != null then 27 else 25 end)
+    elif $id == 117 then .gridPos = {x:0,y:30,w:24,h:1}
+    elif $id == 56 then .gridPos = {x:0,y:31,w:12,h:8}
+    elif $id == 144 then .gridPos = {x:12,y:31,w:12,h:8}
+    elif $id == 160 then .gridPos = {x:0,y:39,w:12,h:3}
+    elif $id == 161 then .gridPos = {x:12,y:39,w:12,h:3}
+    elif $id == 75 then .gridPos = {x:0,y:42,w:24,h:8}
+    elif $id == 76 then .gridPos = {x:0,y:50,w:12,h:8}
+    elif $id == 4 then .gridPos = {x:12,y:50,w:12,h:8}
+    elif $id == 122 then .gridPos = {x:0,y:58,w:12,h:8}
+    elif $id == 57 then .gridPos = {x:12,y:58,w:12,h:8}
+    elif $id == 113 then .gridPos = {x:0,y:66,w:24,h:1}
+    elif ([104,102,85,139,108,111,118,135,129,133,127,137,131] | index($id)) != null then
+      ({"104":67,"102":67,"85":77,"139":77,"108":87,"111":87,
+        "118":97,"135":97,"129":106,"133":106,"127":115,"137":115,"131":124}[($id|tostring)]) as $host_y |
+      .gridPos.y = $host_y
+    else . end |
+    if ([181,193,187,201] | index($id)) != null then
+      .transparent = false | .options.textMode = "value_and_name" |
+      .fieldConfig.defaults.color = {mode:"fixed",fixedColor:(if $id == 187 then "purple" else "green" end)}
+    else . end |
+    if $id == 187 then
+      .title = "Epoch Rewards — Gross" |
+      .targets += [named_target("D"; vx_reward("Missed"); "Missed rewards")] |
+      .fieldConfig.overrides += [{matcher:{id:"byName",options:"Missed rewards"},
+        properties:[{id:"color",value:{mode:"fixed",fixedColor:"orange"}}]}]
+    elif $id == 201 then
+      .title = "Validator Income — Estimated" |
+      .targets += [named_target("C"; vx_earnings("BlockRevenue"); "Block fees — validator share"),
+                  named_target("D"; vx_earnings("MevShare"); "MEV — estimated share")]
+    elif $id == 120 then
+      .options.content = "### Validator and host health\nCurrent-epoch participation, rewards and admission are shown above. Income is estimated before costs; expand the breakdown or diagnostics for details.\n\n[Stakeconomy](https://stakeconomy.com) · [Monitoring repository](https://github.com/stakeconomy/solanamonitoring)"
+    else . end
+  )
+| .panels += [
+    {id:204,type:"row",title:"Tower history — legacy vote credits",collapsed:true,
+     panels:[],gridPos:{x:0,y:23,w:24,h:1}},
+    {id:205,type:"row",title:"Host snapshot — $server",collapsed:false,
+     panels:[],gridPos:{x:0,y:24,w:24,h:1}}
+  ]
+| .panels as $all
+| .panels |= map(
+    .id as $id |
+    if ([198,199,200,182,183,184,189,190,191,188,196,165,61,126,121] | index($id)) != null then empty
+    elif $id == 197 then .collapsed = true | .panels = [$all[] | select(.id == 198 or .id == 199 or .id == 200)]
+    elif $id == 195 then .collapsed = true | .panels = [$all[] | .id as $child | select(([182,183,184,189,190,191,188,196,165] | index($child)) != null)]
+    elif $id == 204 then .panels = [$all[] | select(.id == 61 or .id == 126 or .id == 121)]
+    else . end
+  )
+# New targets added to the cards must remain instant queries too.
+| walk(if type == "object" and .type? == "stat" then
+    .targets |= map(.instant = true | .range = false) else . end)
+| walk(if type == "object" and .type? == "row" then .panels |= sort_by(.gridPos.y, .gridPos.x, .id) else . end)
 | .panels |= sort_by(.gridPos.y, .gridPos.x, .id)
 | walk(
     if type == "object" then
