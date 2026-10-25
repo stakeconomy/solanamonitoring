@@ -18,6 +18,11 @@ vx_timeout="${MONITOR_VX_TIMEOUT:-10}"
 vx_max_slot_lag="${MONITOR_VX_MAX_SLOT_LAG:-600}"
 slot_milliseconds="${MONITOR_SLOT_MILLISECONDS:-}"
 performance_rpc_url="${SOLANA_PERFORMANCE_RPC_URL:-}"
+# Cluster-wide queries (getVoteAccounts, getBlockProduction, performance
+# samples) can be sent to a different RPC than the node's own. Needed on
+# Firedancer, whose local RPC does not implement them. Node-view queries
+# (finalized slot, epoch, balances, identity) always stay on --rpc-url.
+cluster_rpc_url="${SOLANA_CLUSTER_RPC_URL:-}"
 price_url="${SOLANA_PRICE_URL:-https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd}"
 now="$(date +%s%N)"
 
@@ -35,15 +40,19 @@ Options:
   --no-vx                Disable public VX participation/reward lookup
   --vx-timeout SECONDS    VX request timeout (positive; default: 10)
   --vx-max-slot-lag SLOTS Maximum VX/local slot difference (default: 600)
+  --cluster-rpc-url URL   RPC for cluster-wide queries (getVoteAccounts,
+                          getBlockProduction, performance samples) when the
+                          local RPC does not implement them (Firedancer)
   --performance-rpc-url URL
                           RPC used when local performance samples are empty
+                          (defaults to --cluster-rpc-url when that is set)
   --slot-ms MILLISECONDS  Fallback slot duration when RPC samples are unavailable
   -h, --help              Show this help
 
 The same values can be provided with SOLANA_IDENTITY_PUBKEY,
 SOLANA_VOTE_ACCOUNT, SOLANA_RPC_URL, SOLANA_CLI, MONITOR_RPC_TIMEOUT,
-MONITOR_PRICE_TIMEOUT, SOLANA_PERFORMANCE_RPC_URL, and
-MONITOR_SLOT_MILLISECONDS. VX also accepts MONITOR_VX_ENABLED (0 or 1),
+MONITOR_PRICE_TIMEOUT, SOLANA_CLUSTER_RPC_URL, SOLANA_PERFORMANCE_RPC_URL,
+and MONITOR_SLOT_MILLISECONDS. VX also accepts MONITOR_VX_ENABLED (0 or 1),
 MONITOR_VX_TIMEOUT, and MONITOR_VX_MAX_SLOT_LAG.
 EOF
 }
@@ -96,6 +105,11 @@ while (($#)); do
       if [[ "$1" == --vx-timeout ]]; then vx_timeout="$2"; else vx_max_slot_lag="$2"; fi
       shift 2
       ;;
+    --cluster-rpc-url)
+      require_option_value "$@"
+      cluster_rpc_url="${2:-}"
+      shift 2
+      ;;
     --performance-rpc-url)
       require_option_value "$@"
       performance_rpc_url="${2:-}"
@@ -127,6 +141,10 @@ if [[ -n "$slot_milliseconds" && ! "$slot_milliseconds" =~ ^[1-9][0-9]*$ ]]; the
   exit 64
 fi
 
+if [[ -n "$cluster_rpc_url" && -z "$performance_rpc_url" ]]; then
+  performance_rpc_url="$cluster_rpc_url"
+fi
+
 if [[ ! "$vx_enabled" =~ ^[01]$ || ! "$vx_timeout" =~ ^[0-9]+([.][0-9]+)?$ ||
       ! "$vx_max_slot_lag" =~ ^[1-9][0-9]*$ ]] ||
    ! awk -v seconds="$vx_timeout" 'BEGIN { exit !(seconds > 0) }'; then
@@ -148,7 +166,7 @@ emit_status() {
 
 discover_rpc_url() {
   local process_line rpc_port
-  process_line="$(pgrep -a -f '(agave-validator|solana-validator|fdctl)' 2>/dev/null | sed -n '1p')"
+  process_line="$(pgrep -a -f '(agave-validator|solana-validator|fdctl|firedancer)' 2>/dev/null | sed -n '1p')"
   rpc_port="$(sed -nE 's/.*--rpc-port(=|[[:space:]]+)([0-9]+).*/\2/p' <<<"$process_line")"
   if [[ -n "$rpc_port" ]]; then
     printf 'http://127.0.0.1:%s' "$rpc_port"
@@ -200,6 +218,53 @@ rpc_call() {
     --header 'Content-Type: application/json' \
     --data "$payload" \
     "$endpoint"
+}
+
+cluster_rpc_endpoint() {
+  printf '%s' "${cluster_rpc_url:-$rpc_url}"
+}
+
+# Send a JSON-RPC batch. When the endpoint does not support batches (Firedancer
+# answers a single "Invalid request" object), replay the requests one by one
+# and assemble the responses. A request that fails (HTTP 501 for unimplemented
+# methods, timeouts) becomes an {"id":...,"error":...} entry, so per-id lookups
+# fall back to their defaults instead of zeroing the whole batch.
+rpc_batch() {
+  local payload="$1" endpoint="${2:-$rpc_url}" response item one id any=0
+  local collected=()
+  if response="$(rpc_call "$payload" "$endpoint" 2>/dev/null)" && \
+     jq -e 'type == "array"' >/dev/null 2>&1 <<<"$response"; then
+    printf '%s' "$response"
+    return 0
+  fi
+  while IFS= read -r item; do
+    id="$(jq -r '.id' <<<"$item")"
+    if one="$(rpc_call "$item" "$endpoint" 2>/dev/null)" && \
+       jq -e 'type == "object"' >/dev/null 2>&1 <<<"$one"; then
+      collected+=("$one")
+      any=1
+    else
+      collected+=("$(jq -cn --arg id "$id" '{id: $id, error: {code: -32601, message: "unavailable"}}')")
+    fi
+  done < <(jq -c '.[]' <<<"$payload")
+  ((any)) || return 1
+  printf '%s\n' "${collected[@]}" | jq -cs '.'
+}
+
+# Reduced record when the cluster-wide query failed but the node itself may be
+# fine: node-view fields from the local RPC plus the non-nominal status, so the
+# host stays visible with "status != 0" instead of going silent.
+emit_degraded() {
+  local status="$1" finalized epoch_info epoch pct genesis cluster
+  finalized="$(rpc_call '{"jsonrpc":"2.0","id":1,"method":"getSlot","params":[{"commitment":"finalized"}]}' 2>/dev/null | jq -r '.result // empty' 2>/dev/null)"
+  epoch_info="$(rpc_call '{"jsonrpc":"2.0","id":1,"method":"getEpochInfo"}' 2>/dev/null)"
+  epoch="$(jq -r '.result.epoch // 0' <<<"$epoch_info" 2>/dev/null || printf '0')"
+  pct="$(jq -r '(.result.slotIndex // 0) * 100 / (.result.slotsInEpoch // 1)' <<<"$epoch_info" 2>/dev/null || printf '0')"
+  genesis="$(rpc_call '{"jsonrpc":"2.0","id":1,"method":"getGenesisHash"}' 2>/dev/null | jq -r '.result // ""' 2>/dev/null)"
+  IFS=$'\t' read -r cluster _ <<<"$(cluster_metadata_for_genesis "$genesis")"
+  printf 'nodemonitor,cluster=%s,genesis=%s,pubkey=%s,schema=2 collectorUp=1i,status=%si%s,epoch=%si,pctEpochElapsed=%s %s\n' \
+    "$(influx_tag "$cluster")" "$(influx_tag "$genesis")" "$(influx_tag "${identity_pubkey:-unknown}")" \
+    "$status" "${finalized:+,finalizedSlot=${finalized}i}" "${epoch:-0}" "${pct:-0}" "$now"
 }
 
 # VX counts certificate inclusion and estimates gross rewards, per epoch.
@@ -492,10 +557,10 @@ fi
 # Do not request unstaked delinquent vote accounts here. They add no stake to
 # cluster delinquency calculations and can expand this response by megabytes.
 vote_payload='{"jsonrpc":"2.0","id":"voteAccounts","method":"getVoteAccounts","params":[{"commitment":"confirmed"}]}'
-if ! vote_response="$(rpc_call "$vote_payload" 2>/dev/null)" || ! jq -e '.result.current and .result.delinquent' >/dev/null 2>&1 <<<"$vote_response"; then
-  printf 'monitor: getVoteAccounts RPC request failed\n' >&2
-  emit_status 2
-  exit 1
+if ! vote_response="$(rpc_call "$vote_payload" "$(cluster_rpc_endpoint)" 2>/dev/null)" || ! jq -e '.result.current and .result.delinquent' >/dev/null 2>&1 <<<"$vote_response"; then
+  printf 'monitor: getVoteAccounts RPC request failed (%s)\n' "$(cluster_rpc_endpoint)" >&2
+  emit_degraded 2
+  exit 0
 fi
 
 if [[ -z "$vote_account" ]]; then
@@ -549,12 +614,21 @@ batch_payload="$(jq -cn --arg identity "$identity_pubkey" --arg vote "$vote_acco
   {jsonrpc:"2.0",id:"agGenesisCert",method:"getAgGenesisCert"}
 ]')"
 
+# getBlockProduction is cluster-wide: send it to the cluster endpoint when one is
+# configured, everything else (node view) to the local RPC.
+local_batch_payload="$batch_payload"
+remote_batch_response='[]'
+if [[ -n "$cluster_rpc_url" ]]; then
+  local_batch_payload="$(jq -c '[.[] | select(.id != "blockProduction")]' <<<"$batch_payload")"
+  remote_batch_response="$(rpc_batch "$(jq -c '[.[] | select(.id == "blockProduction")]' <<<"$batch_payload")" "$cluster_rpc_url" 2>/dev/null || printf '[]')"
+fi
+
 batch_response='[]'
 batch_ok=0
-if ! batch_candidate="$(rpc_call "$batch_payload" 2>/dev/null)" || ! jq -e 'type == "array"' >/dev/null 2>&1 <<<"$batch_candidate"; then
+if ! batch_candidate="$(rpc_batch "$local_batch_payload" 2>/dev/null)"; then
   printf 'monitor: supplemental JSON-RPC batch failed; emitting validator status with zeroed supplemental fields\n' >&2
 else
-  batch_response="$batch_candidate"
+  batch_response="$(jq -cs 'add' <(printf '%s' "$batch_candidate") <(printf '%s' "$remote_batch_response"))"
   batch_ok=1
 fi
 
